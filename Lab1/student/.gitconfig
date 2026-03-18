@@ -1,0 +1,12 @@
+[user]
+	email = yebinp1926@gmail.com
+	name = yebin
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[init]
+	defaultBranch = main
+[credential]
+	helper = "!f() { /home/student/.vscode-server/bin/ce099c1ed25d9eb3076c11e4a280f3eb52b4fbeb/node /tmp/vscode-remote-containers-03e21d99-d287-4880-bf9d-74bfdf3276c9.js git-credential-helper $*; }; f"
