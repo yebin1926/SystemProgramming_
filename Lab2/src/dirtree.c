@@ -46,7 +46,7 @@ struct summary {
 const char *print_formats[8] = {
   "Name                                                        User:Group           Size    Blocks Type\n",
   "----------------------------------------------------------------------------------------------------\n",
-  "%s  ERROR: %s\n", // you can use this format for error handling or utilize panic function
+  "%s  ERROR: %s\n", // you can use this format for error handling or utilize panic function. For when you want to print an in-output tree error line and continue processing.
   "%-54s  No such file or directory\n",
   "%-54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "Invalid pattern syntax",
@@ -59,6 +59,7 @@ const char* pattern = NULL;  // pattern for filtering entries
 ///
 /// @param msg optional error message or NULL
 /// @param format optional format string (printf format) or NULL
+// when the program should print an error and then immediately exit.
 void panic(const char* msg, const char* format)
 {
   if (msg) {
@@ -296,15 +297,6 @@ static int entry_matches_filter(const char *name, unsigned int flags)
   return 0;
 }
 
-/// @brief print one detailed output line for a visible entry
-//unnecessary
-static void print_entry_line(const char *display_name, const struct stat *st)
-{
-  // TODO: print name/user/group/size/blocks/type with the required widths.
-  (void)display_name;
-  (void)st;
-}
-
 /// @brief print a parent directory line without metadata
 //unnecessary
 static void print_parent_only_line(const char *display_name)
@@ -313,25 +305,43 @@ static void print_parent_only_line(const char *display_name)
   (void)display_name;
 }
 
-/// @brief print the root directory line shown right below the header
-//unnecessary
+// TODO: print the root directory line shown right below the header
 static void print_root_line(const char *root_path)
 {
   printf("%s\n", root_path);
 }
 
-/// @brief print the missing-path error line for a root entry
-//unnecessary
+// TODO: print the missing-path error line for a root entry
 static void print_missing_path_line(void)
 {
   printf(print_formats[2], "", "No such file or directory");
 }
 
-/// @brief print separator and per-directory summary line
-//unnecessary
+static void print_permission_denied_line(void)
+{
+  fprintf(stderr, print_formats[2], "", "Permission denied");
+}
+
+static void print_entry_line(const char *display_name, const struct stat *st)
+{
+  const char *user = lookup_user(st->st_uid);
+  const char *group = lookup_group(st->st_gid);
+  char typech = get_type_char(st);
+
+  printf(print_formats[4],
+         display_name,
+         user,
+         group,
+         (unsigned long long)st->st_size,
+         (unsigned long long)st->st_blocks,
+         typech);
+}
+
+// TODO: print separator and per-directory summary line
 static void print_directory_summary(const struct summary *stats)
 {
   char left[256];
+  char summary_col[69];
   const char *s_files  = pluralize(stats->files, "", "s");
   const char *s_links  = pluralize(stats->links, "", "s");
   const char *s_pipes  = pluralize(stats->fifos, "", "s");
@@ -339,19 +349,20 @@ static void print_directory_summary(const struct summary *stats)
   const char *dir_word = pluralize(stats->dirs, "directory", "directories");
 
   snprintf(left, sizeof(left),
-           "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
-           stats->files, s_files,
-           stats->dirs, dir_word,
-           stats->links, s_links,
-           stats->fifos, s_pipes,
-           stats->socks, s_socks);
+          "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
+          stats->files, s_files,
+          stats->dirs, dir_word,
+          stats->links, s_links,
+          stats->fifos, s_pipes,
+          stats->socks, s_socks);
+  
+  format_truncated_left(summary_col, sizeof(summary_col), left, 68);
 
   printf("%s", print_formats[1]);
-  printf("%-54s  %8s  %10llu  %8llu    %c\n",
-         left, "",
-         (unsigned long long)stats->size,
-         (unsigned long long)stats->blocks,
-         ' ');
+  printf("%-68s%14llu%9llu\n",
+        summary_col,
+        (unsigned long long)stats->size,
+        (unsigned long long)stats->blocks);
   printf("\n");
 }
 
@@ -359,20 +370,19 @@ static void print_aggregate_summary(const struct summary *total, int ndir)
 {
   // TODO: print the final total "Analyzed N directories:" block when ndir > 1.
   if (ndir > 1) {
-    printf("Analyzed %d directories:\n"
-          "  total # of files:%24u\n"
-          "  total # of directories:%18u\n"
-          "  total # of links:%24u\n"
-          "  total # of pipes:%24u\n"
-          "  total # of sockets:%22u\n"
-          "  total # of entries:%22u\n"
-          "  total file size:%25llu\n"
-          "  total # of blocks:%22llu\n",
-      ndir, total->files, total->dirs, total->links, total->fifos, total->socks,
-      total->files + total->dirs + total->links + total->fifos + total->socks, 
-      total->size, total->blocks);
+    printf("Analyzed %d directories:\n", ndir);
+    printf("  total # of files:%24u\n", total->files);
+    printf("  total # of directories:%18u\n", total->dirs);
+    printf("  total # of links:%24u\n", total->links);
+    printf("  total # of pipes:%24u\n", total->fifos);
+    printf("  total # of sockets:%22u\n", total->socks);
+    printf("  total # of entries:%22u\n",
+          total->files + total->dirs + total->links + total->fifos + total->socks);
+    printf("  total file size:%25llu\n", total->size);
+    printf("  total # of blocks:%22llu\n", total->blocks);
   }
 }
+
 
 /// @brief recursively process directory @a dn and print its tree
 ///
@@ -380,12 +390,73 @@ static void print_aggregate_summary(const struct summary *total, int ndir)
 /// @param pstr prefix string printed in front of each entry
 /// @param stats pointer to statistics
 /// @param flags output control flags (F_*)
-void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
+static int process_dir(const char *dn, int depth, const char *pstr, struct summary *stats, unsigned int flags)
 {
   // TODO: open directory and handle failure
+  DIR *dir = opendir(dn);                  //open directory
+  if(dir == NULL){
+    if (errno == EACCES) print_permission_denied_line();
+    return -1;
+  }           //return if directory doesn't exist
+
+  struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
+  int cap = 0;                              //cap: count of files in that depth
+  struct dirent *e;
 
   // TODO: Read child entries using get_next(), store them in dynamic array, sort them using qsort() with dirent_compare()
+  while((e = get_next(dir)) != NULL){       //for each file in that depth, store file into list_directories then sort
+    cap++;
+    struct dirent *tmp = realloc(list_directories, cap * sizeof(struct dirent)); //reallocate size of array if another file is found
+    if(tmp == NULL) {
+      closedir(dir);
+      free(list_directories);
+      panic(print_formats[6], NULL);
+    }
+    list_directories = tmp;
+    list_directories[cap-1] = *e;
+  }
+  qsort(list_directories, cap, sizeof(struct dirent), dirent_compare); //sort directories in that depth first showing directories then alphabetical
 
+  // ------ NO F FILTER ------
+  for (int i = 0; i < cap; i++) { //For every entry
+    //TODO: build child path 
+    const char *name = list_directories[i].d_name;
+    char full_path[MAX_PATH_LEN];
+    if (make_child_path(full_path, sizeof full_path, dn, name) == -1) {
+      closedir(dir);
+      free(list_directories);
+      return -1;
+    }
+
+    //TODO: call lstat and get info
+    struct stat st;
+    if (lstat(full_path, &st) == -1) { perror("lstat"); continue; }  //get lstat of path, and increment the directory's stats
+    // stats->size   += st.st_size;
+    // stats->blocks += st.st_blocks;
+
+    //TODO: get type of file
+    char typech = get_type_char(&st);
+
+    //TODO: update stats
+    summary_add_entry(stats, &st, typech);
+
+    //TODO: apply indentation and ellipses if needed
+    char namecol[256];
+    build_display_name(namecol, sizeof(namecol), name, depth);
+
+    //print
+    print_entry_line(namecol, &st);
+
+    //TODO: if not reached -d depth, keep printing children
+    if (S_ISDIR(st.st_mode) && depth < max_depth) {
+      (void)process_dir(full_path, depth + 1, pstr, stats, flags); // keep printing children
+    }
+
+  }
+  closedir(dir);
+  free(list_directories);
+  return 1;
+  
   // TODO: For every entry:
   // TODO:   - stop traversing and printing beyond max_depth, according to -d
   // TODO:   - combine parent + child path and use that to call lstat()
@@ -516,14 +587,24 @@ int main(int argc, char *argv[])
       printf("%s%s", print_formats[0], print_formats[1]);
       print_root_line(directories[j]);
 
-      if (lstat(directories[j], &root_st) == -1 && errno == ENOENT) {
-        print_missing_path_line();
+      //TODO: missing root error handling
+      if (lstat(directories[j], &root_st) == -1) {
+        if (errno == ENOENT) {
+          print_missing_path_line();
+          print_directory_summary(&individual_summary);
+          summary_add(&tstat, &individual_summary);
+          continue;
+        }
+
         print_directory_summary(&individual_summary);
         summary_add(&tstat, &individual_summary);
         continue;
       }
 
-      process_dir(directories[j], "", &individual_summary, flags);
+
+      process_dir(directories[j], 1, pattern, &individual_summary, flags);
+
+      //TODO: print individual summary statistics
       print_directory_summary(&individual_summary);
 
       //TODO: update tstat
