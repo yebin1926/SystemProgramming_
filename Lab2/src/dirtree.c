@@ -170,20 +170,18 @@ static void summary_add_entry(struct summary *stats, const struct stat *st, char
 static const char *pluralize(unsigned int count, const char *singular, const char *plural)
 {
   // TODO: return singular when count == 1, otherwise plural.
-  
-  (void)count;
-  (void)singular;
+  if(count == 1){
+    return singular;
+  }
   return plural;
 }
 
-/// @brief join parent path and child name into dst
 static int make_child_path(char *dst, size_t dstsz, const char *parent, const char *name)
 {
   // TODO: build a child path safely without overflowing MAX_PATH_LEN.
-  (void)dst;
-  (void)dstsz;
-  (void)parent;
-  (void)name;
+  *dst = *parent + '/' + *name;
+  dstsz = sizeof(*dst);
+  if(dstsz > MAX_PATH_LEN) return -1;
   return 0;
 }
 
@@ -191,54 +189,77 @@ static int make_child_path(char *dst, size_t dstsz, const char *parent, const ch
 static void build_display_name(char *dst, size_t dstsz, const char *name, int depth)
 {
   // TODO: prepend two spaces per depth level and append the basename.
-  (void)dst;
-  (void)dstsz;
-  (void)name;
-  (void)depth;
+  *dst = (' ' * depth) + *name;
+  dstsz = sizeof(*dst);
+  format_truncated_left(dst, dstsz, dst, 54);
 }
 
-/// @brief truncate a left-aligned field with trailing dots if needed
 static void format_truncated_left(char *dst, size_t dstsz, const char *src, size_t width)
 {
   // TODO: if src length exceeds width, keep width-3 chars and append "...".
-  // TODO: otherwise copy src as-is.
-  (void)dst;
-  (void)dstsz;
-  (void)src;
-  (void)width;
+  if(strlen(*src) > width){
+    strncpy(*dst, src, strlen(src)-3);
+    *dst = *dst + ('.' * 3);
+  } else{
+    *dst = *src;
+  }
 }
 
-/// @brief get printable user name from uid
 static const char *lookup_user(uid_t uid)
 {
   // TODO: use getpwuid() and decide a fallback string if lookup fails.
-  (void)uid;
-  return "";
+  struct passwd *pw = getpwuid(uid); 
+  const char *user = pw ? pw->pw_name : "?";
+  return user;
 }
 
-/// @brief get printable group name from gid
 static const char *lookup_group(gid_t gid)
 {
   // TODO: use getgrgid() and decide a fallback string if lookup fails.
-  (void)gid;
-  return "";
-}
-
-/// @brief validate -f pattern syntax before traversal
-static int validate_pattern(const char *p)
-{
-  // TODO: reject empty patterns, '*' at the beginning, consecutive '*',
-  // TODO: empty groups "()", and unmatched/misused parentheses.
-  (void)p;
-  return 0;
+  struct group  *gr = getgrgid(gid);
+  const char *group = gr ? gr->gr_name : "?";
+  return group;
 }
 
 const char *find_close(const char *p)
 {
   // TODO: return pointer to the matching ')' for the '(' at p, or NULL if invalid.
-  (void)p;
+  int depth = 1;                        // start with 1 because we're seeing one '(' (although we're not using nested brackets)
+  for (p = p + 1; *p; p++) {            // traverse through string
+      if (*p == '(') depth++;           // increase depth count when coming across (, so that we find outermost )
+      else if (*p == ')') {
+          depth--;
+          if (depth == 0) return p;   // if all ( are closed with ), return that pointer
+      }
+  }
   return NULL;
 }
+
+static int validate_pattern(const char *p)
+{
+  if (p == NULL || *p == '\0') return 0;
+
+  for (; *p; p++) {
+    if (*p == '*') {
+      if (p == pattern || *(p - 1) == '*' || *(p - 1) == '(') return 0;
+      //if * is first char, or **, or (*), then invalid
+    }
+    else if (*p == '(') {
+      const char *close = find_close(p);
+
+      if (close == NULL) return 0;        //check unmatched (
+      if (close == p + 1) return 0;       //check empty ()
+
+      p = close;                          //skip to matching )
+    }
+    else if (*p == ')') {
+      return 0;                           //check stray )
+    }
+  }
+
+  return 1;
+}
+
 
 // TODO: Helper function for matching logic
 static int submatch(const char *s, const char *p)
@@ -307,12 +328,23 @@ static void print_directory_summary(const struct summary *stats)
   (void)stats;
 }
 
-/// @brief print cumulative totals for multiple roots
 static void print_aggregate_summary(const struct summary *total, int ndir)
 {
-  // TODO: print the final "Analyzed N directories:" block when ndir > 1.
-  (void)total;
-  (void)ndir;
+  // TODO: print the final total "Analyzed N directories:" block when ndir > 1.
+  if (ndir > 1) {
+    printf("Analyzed %d directories:\n"
+      "  total # of files:        %16d\n"
+      "  total # of directories:  %16d\n"
+      "  total # of links:        %16d\n"
+      "  total # of pipes:        %16d\n"
+      "  total # of sockets:      %16d\n"
+      "  total # of entries:      %16d\n"
+      "  total file size:         %16llu\n"
+      "  total # of blocks:       %16llu\n",
+      ndir, total->files, total->dirs, total->links, total->fifos, total->socks,
+      total->files + total->dirs + total->links + total->fifos + total->socks, 
+      total->size, total->blocks);
+  }
 }
 
 /// @brief recursively process directory @a dn and print its tree
