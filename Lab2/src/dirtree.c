@@ -109,48 +109,68 @@ static int dirent_compare(const void *a, const void *b)
 }
 
 // TODO: Helper functions
-
-/// @brief zero one summary structure before processing a root directory
 static void summary_reset(struct summary *stats)
 {
   // TODO: set every field in stats to 0.
-  (void)stats;
+  memset(stats, 0, sizeof(*stats));
 }
 
-/// @brief add one summary into another for aggregate totals
 static void summary_add(struct summary *dst, const struct summary *src)
 {
-  // TODO: add each counter, size, and block total from src into dst.
-  (void)dst;
-  (void)src;
+  // TODO: combine two already-built summaries. add stats from src into dst.
+  dst->blocks += src->blocks;
+  dst->dirs += src->dirs;
+  dst->fifos += src->fifos;
+  dst->files += src->files;
+  dst->links += src->links;
+  dst->size += src->size;
+  dst->socks += src->socks;
 }
 
-/// @brief classify a file for output/statistics
 static char get_type_char(const struct stat *st)
 {
-  // TODO: return:
-  // TODO:   'd' for directories
-  // TODO:   'l' for symbolic links
-  // TODO:   'f' for FIFOs
-  // TODO:   's' for sockets
-  // TODO:   ' ' for regular files and all other file types in this lab
-  (void)st;
+  // TODO: return file type (directory, link, fifo, socket, block, file)
+  if(S_ISDIR(st->st_mode)) return 'd';
+  else if(S_ISLNK(st->st_mode)) return 'l';
+  else if(S_ISFIFO(st->st_mode)) return 'f';
+  else if(S_ISSOCK(st->st_mode)) return 's';
+  else return ' ';
+
   return ' ';
 }
 
-/// @brief add one visible entry to the summary
+
 static void summary_add_entry(struct summary *stats, const struct stat *st, char type_char)
 {
-  // TODO: update the correct category count and accumulate size + blocks.
-  (void)stats;
-  (void)st;
-  (void)type_char;
+  // TODO: add one visible entry to the summary. update the correct category count and accumulate size + blocks.
+  switch(type_char){
+    case 'd':
+      stats->dirs++;
+      break;
+    case ' ':
+      stats->files++;
+      break;
+    case 'l':
+      stats->links++;
+      break;
+    case 'f':
+      stats->fifos++;
+      break;
+    case 's':
+      stats->socks++;
+      break;
+    default:
+      break;
+  }
+  stats->size += st->st_size;
+  stats->blocks += st->st_blocks;
 }
 
-/// @brief singular/plural word helper for summary text
+
 static const char *pluralize(unsigned int count, const char *singular, const char *plural)
 {
   // TODO: return singular when count == 1, otherwise plural.
+  
   (void)count;
   (void)singular;
   return plural;
@@ -238,6 +258,7 @@ static int match(const char *str, const char *pattern)
 }
 
 /// @brief decide whether a basename matches the active filter
+//unnecessary
 static int entry_matches_filter(const char *name, unsigned int flags)
 {
   // TODO: if filtering is disabled, always return 1; otherwise call match().
@@ -247,6 +268,7 @@ static int entry_matches_filter(const char *name, unsigned int flags)
 }
 
 /// @brief print one detailed output line for a visible entry
+//unnecessary
 static void print_entry_line(const char *display_name, const struct stat *st)
 {
   // TODO: print name/user/group/size/blocks/type with the required widths.
@@ -255,6 +277,7 @@ static void print_entry_line(const char *display_name, const struct stat *st)
 }
 
 /// @brief print a parent directory line without metadata
+//unnecessary
 static void print_parent_only_line(const char *display_name)
 {
   // TODO: print only the left column when a non-matching directory has matching descendants.
@@ -262,6 +285,7 @@ static void print_parent_only_line(const char *display_name)
 }
 
 /// @brief print the root directory line shown right below the header
+//unnecessary
 static void print_root_line(const char *root_path)
 {
   // TODO: print the root exactly as supplied on the command line.
@@ -269,12 +293,14 @@ static void print_root_line(const char *root_path)
 }
 
 /// @brief print the missing-path error line for a root entry
+//unnecessary
 static void print_missing_path_line(void)
 {
   // TODO: print "  ERROR: No such file or directory" under the root.
 }
 
 /// @brief print separator and per-directory summary line
+//unnecessary
 static void print_directory_summary(const struct summary *stats)
 {
   // TODO: print the footer separator and grammatically correct one-line summary.
