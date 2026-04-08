@@ -3,8 +3,8 @@
 //
 /// @file
 /// @brief resursively traverse directory tree and list all entries
-/// @author <yourname>
-/// @studid <studentid>
+/// @author <편예빈>
+/// @studid <2021-10421>
 //--------------------------------------------------------------------------------------------------
 
 #define _GNU_SOURCE
@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <grp.h>
 #include <pwd.h>
-
 /// @brief output control flags
 #define F_DEPTH    0x1        ///< print directory tree
 #define F_Filter   0x2        ///< pattern matching
@@ -42,10 +41,6 @@ struct summary {
   unsigned long long size;    ///< total size (in bytes)
   unsigned long long blocks;  ///< total number of blocks (512 byte blocks)
 };
-
-/*
-  RECOMMEND YOU TO NOT TOUCH FOLLOWING FORMAT
-*/
 
 /// @brief print strings used in the output
 const char *print_formats[8] = {
@@ -73,7 +68,6 @@ void panic(const char* msg, const char* format)
   exit(EXIT_FAILURE);
 }
 
-
 /// @brief read next directory entry from open directory 'dir'. Ignores '.' and '..' entries
 ///
 /// @param dir open DIR* stream
@@ -94,7 +88,6 @@ struct dirent *get_next(DIR *dir)
   return next;
 }
 
-
 /// @brief qsort comparator to sort directory entries. Sorted by name, directories first.
 ///
 /// @param a pointer to first entry
@@ -107,16 +100,194 @@ static int dirent_compare(const void *a, const void *b)
   struct dirent *e1 = (struct dirent*)a;
   struct dirent *e2 = (struct dirent*)b;
 
-  // if one of the entries is a directory, it comes first
   if (e1->d_type != e2->d_type) {
     if (e1->d_type == DT_DIR) return -1;
     if (e2->d_type == DT_DIR) return 1;
   }
 
-  // otherwise sort by name
   return strcmp(e1->d_name, e2->d_name);
 }
 
+// TODO: Helper functions
+
+/// @brief zero one summary structure before processing a root directory
+static void summary_reset(struct summary *stats)
+{
+  // TODO: set every field in stats to 0.
+  (void)stats;
+}
+
+/// @brief add one summary into another for aggregate totals
+static void summary_add(struct summary *dst, const struct summary *src)
+{
+  // TODO: add each counter, size, and block total from src into dst.
+  (void)dst;
+  (void)src;
+}
+
+/// @brief classify a file for output/statistics
+static char get_type_char(const struct stat *st)
+{
+  // TODO: return:
+  // TODO:   'd' for directories
+  // TODO:   'l' for symbolic links
+  // TODO:   'f' for FIFOs
+  // TODO:   's' for sockets
+  // TODO:   ' ' for regular files and all other file types in this lab
+  (void)st;
+  return ' ';
+}
+
+/// @brief add one visible entry to the summary
+static void summary_add_entry(struct summary *stats, const struct stat *st, char type_char)
+{
+  // TODO: update the correct category count and accumulate size + blocks.
+  (void)stats;
+  (void)st;
+  (void)type_char;
+}
+
+/// @brief singular/plural word helper for summary text
+static const char *pluralize(unsigned int count, const char *singular, const char *plural)
+{
+  // TODO: return singular when count == 1, otherwise plural.
+  (void)count;
+  (void)singular;
+  return plural;
+}
+
+/// @brief join parent path and child name into dst
+static int make_child_path(char *dst, size_t dstsz, const char *parent, const char *name)
+{
+  // TODO: build a child path safely without overflowing MAX_PATH_LEN.
+  (void)dst;
+  (void)dstsz;
+  (void)parent;
+  (void)name;
+  return 0;
+}
+
+/// @brief build the left-column text with depth indentation
+static void build_display_name(char *dst, size_t dstsz, const char *name, int depth)
+{
+  // TODO: prepend two spaces per depth level and append the basename.
+  (void)dst;
+  (void)dstsz;
+  (void)name;
+  (void)depth;
+}
+
+/// @brief truncate a left-aligned field with trailing dots if needed
+static void format_truncated_left(char *dst, size_t dstsz, const char *src, size_t width)
+{
+  // TODO: if src length exceeds width, keep width-3 chars and append "...".
+  // TODO: otherwise copy src as-is.
+  (void)dst;
+  (void)dstsz;
+  (void)src;
+  (void)width;
+}
+
+/// @brief get printable user name from uid
+static const char *lookup_user(uid_t uid)
+{
+  // TODO: use getpwuid() and decide a fallback string if lookup fails.
+  (void)uid;
+  return "";
+}
+
+/// @brief get printable group name from gid
+static const char *lookup_group(gid_t gid)
+{
+  // TODO: use getgrgid() and decide a fallback string if lookup fails.
+  (void)gid;
+  return "";
+}
+
+/// @brief validate -f pattern syntax before traversal
+static int validate_pattern(const char *p)
+{
+  // TODO: reject empty patterns, '*' at the beginning, consecutive '*',
+  // TODO: empty groups "()", and unmatched/misused parentheses.
+  (void)p;
+  return 0;
+}
+
+const char *find_close(const char *p)
+{
+  // TODO: return pointer to the matching ')' for the '(' at p, or NULL if invalid.
+  (void)p;
+  return NULL;
+}
+
+// TODO: Helper function for matching logic
+static int submatch(const char *s, const char *p)
+{
+  // TODO: recursive anchored matcher for ?, x*, and (group)*.
+  (void)s;
+  (void)p;
+  return 0;
+}
+
+static int match(const char *str, const char *pattern)
+{
+  // TODO: partial-match wrapper: try submatch() starting at every position in str.
+  (void)str;
+  (void)pattern;
+  return 0;
+}
+
+/// @brief decide whether a basename matches the active filter
+static int entry_matches_filter(const char *name, unsigned int flags)
+{
+  // TODO: if filtering is disabled, always return 1; otherwise call match().
+  (void)name;
+  (void)flags;
+  return 0;
+}
+
+/// @brief print one detailed output line for a visible entry
+static void print_entry_line(const char *display_name, const struct stat *st)
+{
+  // TODO: print name/user/group/size/blocks/type with the required widths.
+  (void)display_name;
+  (void)st;
+}
+
+/// @brief print a parent directory line without metadata
+static void print_parent_only_line(const char *display_name)
+{
+  // TODO: print only the left column when a non-matching directory has matching descendants.
+  (void)display_name;
+}
+
+/// @brief print the root directory line shown right below the header
+static void print_root_line(const char *root_path)
+{
+  // TODO: print the root exactly as supplied on the command line.
+  (void)root_path;
+}
+
+/// @brief print the missing-path error line for a root entry
+static void print_missing_path_line(void)
+{
+  // TODO: print "  ERROR: No such file or directory" under the root.
+}
+
+/// @brief print separator and per-directory summary line
+static void print_directory_summary(const struct summary *stats)
+{
+  // TODO: print the footer separator and grammatically correct one-line summary.
+  (void)stats;
+}
+
+/// @brief print cumulative totals for multiple roots
+static void print_aggregate_summary(const struct summary *total, int ndir)
+{
+  // TODO: print the final "Analyzed N directories:" block when ndir > 1.
+  (void)total;
+  (void)ndir;
+}
 
 /// @brief recursively process directory @a dn and print its tree
 ///
@@ -126,11 +297,29 @@ static int dirent_compare(const void *a, const void *b)
 /// @param flags output control flags (F_*)
 void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
 {
-  //
-  // TODO
-  //
-}
+  // TODO: open directory and handle failure
 
+  // TODO: Read child entries using get_next(), store them in dynamic array, sort them using qsort() with dirent_compare()
+
+  // TODO: For every entry:
+  // TODO:   - stop traversing and printing beyond max_depth, according to -d
+  // TODO:   - combine parent + child path and use that to call lstat()
+  // TODO:   - determine the file type and whether the basename matches the filter
+  // TODO:   - if filter is active:
+  // TODO:       * print/count matching files
+  // TODO:       * always recurse into directories
+  // TODO:       * print non-matching directories only by name when they have matching descendants
+  // TODO:   - if filter is inactive:
+  // TODO:       * print/count every visible entry
+  // TODO:   - update stats only for entries that the spec says are counted
+  // TODO: recurse into subdirectories
+  // TODO: close directory and free memory
+
+  (void)dn;
+  (void)pstr;
+  (void)stats;
+  (void)flags;
+}
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
 ///
@@ -157,7 +346,7 @@ void syntax(const char *argv0, const char *error, ...)
                   "\n"
                   "Options:\n"
                   " -d depth   | set maximum depth of directory traversal (1-%d)\n"
-                  " -f pattern | filter entries using pattern (supports \'?\', \'*\', and \'()\')\n"
+                  " -f pattern | filter entries using pattern (supports '?', '*', and '()')\n"
                   " -h         | print this help\n"
                   " path...    | list of space-separated paths (max %d). Default is the current directory.\n",
                   basename(argv0), MAX_DEPTH, MAX_DIR);
@@ -165,13 +354,9 @@ void syntax(const char *argv0, const char *error, ...)
   exit(EXIT_FAILURE);
 }
 
-
 /// @brief program entry point
 int main(int argc, char *argv[])
 {
-  //
-  // default directory is the current directory (".")
-  //
   const char CURDIR[] = ".";
   const char *directories[MAX_DIR];
   int   ndir = 0;
@@ -179,12 +364,8 @@ int main(int argc, char *argv[])
   struct summary tstat = { 0 }; // a structure to store the total statistics
   unsigned int flags = 0;
 
-  //
-  // parse arguments
-  //
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
-      // format: "-<flag>"
       if (!strcmp(argv[i], "-d")) {
         flags |= F_DEPTH;
         if (++i < argc && argv[i][0] != '-') {
@@ -192,7 +373,7 @@ int main(int argc, char *argv[])
           if (max_depth < 1 || max_depth > MAX_DEPTH) {
             syntax(argv[0], "Invalid depth value '%s'. Must be between 1 and %d.", argv[i], MAX_DEPTH);
           }
-        } 
+        }
         else {
           syntax(argv[0], "Missing depth value argument.");
         }
@@ -223,44 +404,23 @@ int main(int argc, char *argv[])
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
 
-
-  //
   // process each directory
-  //
   // TODO
-  //
   // Pseudo-code
-  // - reset statistics (tstat)
-  // - loop over all entries in 'root directories' (number of entires stored in 'ndir')
-  //   - reset statistics (dstat)
+  // - if -f is enabled, validate pattern before printing anything
+  // - reset total statistics (tstat)
+  // - loop over all root directories in 'directories'
+  //   - reset per-directory statistics (dstat)
   //   - print header
-  //   - print directory name
-  //   - call process_dir() for the directory
-  //   - print summary & update statistics
-  //...
+  //   - print directory name (root)
+  //   - if root does not exist:
+  //   -   print the indented "ERROR: No such file or directory" line
+  //   - else:
+  //   -   call process_dir() with the proper initial prefix / depth state
+  //   - print footer + per-directory summary using correct singular/plural words
+  //   - add dstat to tstat
+  // - if ndir > 1, print aggregate statistics block
 
-
-  //
-  // print aggregate statistics if more than one directory was traversed
-  //
-  if (ndir > 1) {
-    printf("Analyzed %d directories:\n"
-      "  total # of files:        %16d\n"
-      "  total # of directories:  %16d\n"
-      "  total # of links:        %16d\n"
-      "  total # of pipes:        %16d\n"
-      "  total # of sockets:      %16d\n"
-      "  total # of entries:      %16d\n"
-      "  total file size:         %16llu\n"
-      "  total # of blocks:       %16llu\n",
-      ndir, tstat.files, tstat.dirs, tstat.links, tstat.fifos, tstat.socks,
-      tstat.files + tstat.dirs + tstat.links + tstat.fifos + tstat.socks, 
-      tstat.size, tstat.blocks);
-  }
-
-  //
-  // that's all, folks!
-  //
-  return EXIT_SUCCESS;
+  (void)tstat;
+  return 0;
 }
-
