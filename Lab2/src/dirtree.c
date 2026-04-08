@@ -317,23 +317,42 @@ static void print_parent_only_line(const char *display_name)
 //unnecessary
 static void print_root_line(const char *root_path)
 {
-  // TODO: print the root exactly as supplied on the command line.
-  (void)root_path;
+  printf("%s\n", root_path);
 }
 
 /// @brief print the missing-path error line for a root entry
 //unnecessary
 static void print_missing_path_line(void)
 {
-  // TODO: print "  ERROR: No such file or directory" under the root.
+  printf(print_formats[2], "", "No such file or directory");
 }
 
 /// @brief print separator and per-directory summary line
 //unnecessary
 static void print_directory_summary(const struct summary *stats)
 {
-  // TODO: print the footer separator and grammatically correct one-line summary.
-  (void)stats;
+  char left[256];
+  const char *s_files  = pluralize(stats->files, "", "s");
+  const char *s_links  = pluralize(stats->links, "", "s");
+  const char *s_pipes  = pluralize(stats->fifos, "", "s");
+  const char *s_socks  = pluralize(stats->socks, "", "s");
+  const char *dir_word = pluralize(stats->dirs, "directory", "directories");
+
+  snprintf(left, sizeof(left),
+           "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
+           stats->files, s_files,
+           stats->dirs, dir_word,
+           stats->links, s_links,
+           stats->fifos, s_pipes,
+           stats->socks, s_socks);
+
+  printf("%s", print_formats[1]);
+  printf("%-54s  %8s  %10llu  %8llu    %c\n",
+         left, "",
+         (unsigned long long)stats->size,
+         (unsigned long long)stats->blocks,
+         ' ');
+  printf("\n");
 }
 
 static void print_aggregate_summary(const struct summary *total, int ndir)
@@ -489,51 +508,23 @@ int main(int argc, char *argv[])
 
   for (int j = 0; j < ndir; j++) {
     if (directories[j]){
-      struct summary individual_summary = {0};
+      struct summary individual_summary;
+      struct stat root_st;
+      summary_reset(&individual_summary);
 
       //process each directory
       printf("%s%s", print_formats[0], print_formats[1]);
-      printf("%s\n", directories[j]);
+      print_root_line(directories[j]);
 
-      process_dir(directories[j], 1, pattern, &individual_summary/*, flags*/);
-      printf("%s", print_formats[1]);
-
-      //TODO: update individual_summary
-      struct stat* individual_st;
-      if(lstat(directories[j], individual_st) == -1){
-        panic("Invalid file", NULL);
+      if (lstat(directories[j], &root_st) == -1 && errno == ENOENT) {
+        print_missing_path_line();
+        print_directory_summary(&individual_summary);
+        summary_add(&tstat, &individual_summary);
+        continue;
       }
 
-      char type_char = get_type_char(individual_st);
-      summary_add_entry(&individual_summary, individual_st, type_char);
-
-      //TODO: print individual summary
-      char left[256];
-      const char *s_files  = pluralize(individual_summary.files, "", "s");
-      const char *s_links  = pluralize(individual_summary.links, "", "s");
-      const char *s_pipes  = pluralize(individual_summary.fifos, "", "s");
-      const char *s_socks  = pluralize(individual_summary.socks, "", "s");
-      const char *dir_word = pluralize(individual_summary.dirs, "directory", "directories");
-
-      snprintf(left, sizeof left,
-              "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
-              individual_summary.files, s_files,
-              individual_summary.dirs,  dir_word,
-              individual_summary.links, s_links,
-              individual_summary.fifos, s_pipes,
-              individual_summary.socks, s_socks);
-            
-      char namecol[256];
-      snprintf(namecol, sizeof namecol, "%s", left);
-
-      // Print a footer row aligned to Size/Blocks
-      printf("%-54s  %8s  %10llu  %8llu    %c\n", //TODO: !! YOU MIGHT WANT TO CHANGE THIS
-            left,               /* full sentence, not truncated */
-            "",                 /* blank User:Group field (8 spaces) */
-            (unsigned long long)individual_summary.size,
-            (unsigned long long)individual_summary.blocks,
-            ' ');               /* blank Type column */
-      printf("\n");
+      process_dir(directories[j], "", &individual_summary, flags);
+      print_directory_summary(&individual_summary);
 
       //TODO: update tstat
       summary_add(&tstat, &individual_summary);
