@@ -273,27 +273,129 @@ static int validate_pattern(const char *p)
 // TODO: Helper function for matching logic
 static int submatch(const char *s, const char *p)
 {
-  // TODO: recursive anchored matcher for ?, x*, and (group)*.
-  (void)s;
-  (void)p;
-  return 0;
+  while (*p != '\0') {
+    if (*s == '\0') {
+      // if search keyword is "", and if pattern can be skipped (like (abc)* or x* repeated), treat as match. Else, return 0
+      while (*p) { //case: x*
+        if (*(p + 1) == '*') {
+          p += 2;
+        }
+        else if (*p == '(') { // case: (abc)*
+          const char *close = find_close(p);
+          if (close && *(close + 1) == '*')
+            p = close + 2; // skip (group)*
+          else
+            return 0;
+        }
+        else {
+          return 0;
+        }
+      }
+      return 1;
+    }
+
+    else if (*p == '(') { // if it could be a group
+      //endless repetition here 
+      const char *p_closed = find_close(p); // find pointer to closing braket ), if none return 0
+      if (p_closed == NULL) return 0;
+
+      int len = (int)(p_closed - (p + 1));  // get size of substring of group
+      const char *after = p_closed + 1; // get first char after ')'
+
+      if (*after == '*') {  // this group should be checked for repetition
+        
+        // TODO: replace this group-repetition logic.
+        // TODO: Current version depended on check_repetition_match() and a special
+        // TODO: non-boolean return path, which makes control flow too fragile.
+        // TODO: Simpler plan:
+        // TODO:   1. first try zero repetitions:
+        // TODO:        if (submatch(s, after + 1)) return 1;
+        // TODO:   2. then try consuming one full group at a time
+        // TODO:      as long as the group matches at the current s
+        // TODO:   3. after each successful group consumption, recurse on the
+        // TODO:      pattern after the '*'
+        return 0;
+      }
+      else {
+        int k = 0;  // compare inner literally
+        const char *ts = s;
+        const char *tp = p + 1;
+
+        while (k < len && *ts && *tp && (*tp == '?' || *ts == *tp)) {
+          k++;
+          ts++;
+          tp++;
+        }
+        if (k != len) return 0; // inner didn't match once
+
+        // advance both: we consumed the group once
+        s = ts; // move input past inner
+        p = after;  // move pattern past ')'
+        continue; // continue the while-loop in submatch
+      }
+    }
+
+    else if (*(p + 1) == '*') { //if next char is *, save current *p to test repetitions of it    
+      char c = *p;  // repeat this literal
+      const char *rest = p + 2;  // pattern after the 'x*'
+
+      if (submatch(s, rest)) return 1;  // try zero copies, if it works return 1
+
+      while (*s == c) { // try one-or-more copies
+        s++;
+        if (submatch(s, rest)) return 1;
+      }
+      return 0;
+    }
+
+    else if (*p != '?' && *s != *p) { // if it's not a star case: must match literally or be '?'. If not, return 0
+      return 0;
+    }
+
+    else {
+      s++;
+      p++;
+    }
+  }
+
+  return 1;
 }
+
 
 static int match(const char *str, const char *pattern)
-{
-  // TODO: partial-match wrapper: try submatch() starting at every position in str.
-  (void)str;
-  (void)pattern;
+{ // TODO: PARTIAL-match wrapper: try submatch() starting at every position in str.
+  // pattern may match any contiguous substring of str.
+
+  // TODO: Try submatch() starting at every position in str. If submatch succeeds return 1
+  // TODO: Else, advance to next position
+
+  // TODO: Corner case: If pattern is invalid or empty return 0
+  if (str == NULL || pattern == NULL) {
+    return 0;
+  }
+
+  // TODO: Try matching at each possible start position.
+  // TODO: At each step:
+  // TODO:   if submatch(current_position, pattern) succeeds -> return 1
+  // TODO:   else advance to next starting position
+  //
+  // TODO: Important:
+  // TODO:   You must also try the final position where *str == '\0'
+  // TODO:   because patterns like "a*" or "(ab)*" can match an empty substring.
+
+  do {
+    // TODO: if submatch(str, pattern) succeeds, return 1
+  } while (*str++);
+
+  // TODO: No starting position worked.
   return 0;
 }
 
-/// @brief decide whether a basename matches the active filter
-//unnecessary
 static int entry_matches_filter(const char *name, unsigned int flags)
 {
   // TODO: if filtering is disabled, always return 1; otherwise call match().
-  (void)name;
-  (void)flags;
+  if(flags != F_Filter) return 1;
+  match(name, pattern);
   return 0;
 }
 
@@ -329,12 +431,12 @@ static void print_entry_line(const char *display_name, const struct stat *st)
   char typech = get_type_char(st);
 
   printf(print_formats[4],
-         display_name,
-         user,
-         group,
-         (unsigned long long)st->st_size,
-         (unsigned long long)st->st_blocks,
-         typech);
+        display_name,
+        user,
+        group,
+        (unsigned long long)st->st_size,
+        (unsigned long long)st->st_blocks,
+        typech);
 }
 
 // TODO: print separator and per-directory summary line
@@ -418,63 +520,53 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare); //sort directories in that depth first showing directories then alphabetical
 
   // ------ NO F FILTER ------
-  for (int i = 0; i < cap; i++) { //For every entry
-    //TODO: build child path 
-    const char *name = list_directories[i].d_name;
-    char full_path[MAX_PATH_LEN];
-    if (make_child_path(full_path, sizeof full_path, dn, name) == -1) {
-      closedir(dir);
-      free(list_directories);
-      return -1;
+  if (pstr == NULL){
+      for (int i = 0; i < cap; i++) { //For every entry
+      //TODO: build child path 
+      const char *name = list_directories[i].d_name;
+      char full_path[MAX_PATH_LEN];
+      if (make_child_path(full_path, sizeof full_path, dn, name) == -1) {
+        closedir(dir);
+        free(list_directories);
+        return -1;
+      }
+
+      //TODO: call lstat and get info
+      struct stat st;
+      if (lstat(full_path, &st) == -1) { perror("lstat"); continue; }  //get lstat of path, and increment the directory's stats
+      // stats->size   += st.st_size;
+      // stats->blocks += st.st_blocks;
+
+      //TODO: get type of file
+      char typech = get_type_char(&st);
+
+      //TODO: update stats
+      summary_add_entry(stats, &st, typech);
+
+      //TODO: apply indentation and ellipses if needed
+      char namecol[256];
+      build_display_name(namecol, sizeof(namecol), name, depth);
+
+      //print
+      print_entry_line(namecol, &st);
+
+      //TODO: if not reached -d depth, keep printing children
+      if (S_ISDIR(st.st_mode) && depth < max_depth) {
+        (void)process_dir(full_path, depth + 1, pstr, stats, flags); // keep printing children
+      }
+
     }
-
-    //TODO: call lstat and get info
-    struct stat st;
-    if (lstat(full_path, &st) == -1) { perror("lstat"); continue; }  //get lstat of path, and increment the directory's stats
-    // stats->size   += st.st_size;
-    // stats->blocks += st.st_blocks;
-
-    //TODO: get type of file
-    char typech = get_type_char(&st);
-
-    //TODO: update stats
-    summary_add_entry(stats, &st, typech);
-
-    //TODO: apply indentation and ellipses if needed
-    char namecol[256];
-    build_display_name(namecol, sizeof(namecol), name, depth);
-
-    //print
-    print_entry_line(namecol, &st);
-
-    //TODO: if not reached -d depth, keep printing children
-    if (S_ISDIR(st.st_mode) && depth < max_depth) {
-      (void)process_dir(full_path, depth + 1, pstr, stats, flags); // keep printing children
-    }
-
+    closedir(dir);
+    free(list_directories);
+    return 1;
   }
+
+  // ------ WITH F FILTER ------
+  
+
   closedir(dir);
   free(list_directories);
   return 1;
-  
-  // TODO: For every entry:
-  // TODO:   - stop traversing and printing beyond max_depth, according to -d
-  // TODO:   - combine parent + child path and use that to call lstat()
-  // TODO:   - determine the file type and whether the basename matches the filter
-  // TODO:   - if filter is active:
-  // TODO:       * print/count matching files
-  // TODO:       * always recurse into directories
-  // TODO:       * print non-matching directories only by name when they have matching descendants
-  // TODO:   - if filter is inactive:
-  // TODO:       * print/count every visible entry
-  // TODO:   - update stats only for entries that the spec says are counted
-  // TODO: recurse into subdirectories
-  // TODO: close directory and free memory
-
-  (void)dn;
-  (void)pstr;
-  (void)stats;
-  (void)flags;
 }
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
