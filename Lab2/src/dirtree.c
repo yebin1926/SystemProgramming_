@@ -135,8 +135,6 @@ static char get_type_char(const struct stat *st)
   else if(S_ISFIFO(st->st_mode)) return 'f';
   else if(S_ISSOCK(st->st_mode)) return 's';
   else return ' ';
-
-  return ' ';
 }
 
 
@@ -178,32 +176,42 @@ static const char *pluralize(unsigned int count, const char *singular, const cha
 
 static int make_child_path(char *dst, size_t dstsz, const char *parent, const char *name)
 {
-  // TODO: build a child path safely without overflowing MAX_PATH_LEN.
-  *dst = *parent + '/' + *name;
-  dstsz = sizeof(*dst);
-  if(dstsz > MAX_PATH_LEN) return -1;
+  int n;
+
+  if (parent[strlen(parent) - 1] == '/')
+    n = snprintf(dst, dstsz, "%s%s", parent, name);
+  else
+    n = snprintf(dst, dstsz, "%s/%s", parent, name);
+
+  if (n < 0 || (size_t)n >= dstsz) return -1;
   return 0;
 }
 
-/// @brief build the left-column text with depth indentation
-static void build_display_name(char *dst, size_t dstsz, const char *name, int depth)
-{
-  // TODO: prepend two spaces per depth level and append the basename.
-  *dst = (' ' * depth) + *name;
-  dstsz = sizeof(*dst);
-  format_truncated_left(dst, dstsz, dst, 54);
-}
 
 static void format_truncated_left(char *dst, size_t dstsz, const char *src, size_t width)
 {
-  // TODO: if src length exceeds width, keep width-3 chars and append "...".
-  if(strlen(*src) > width){
-    strncpy(*dst, src, strlen(src)-3);
-    *dst = *dst + ('.' * 3);
-  } else{
-    *dst = *src;
+  size_t len;
+
+  if (dstsz == 0) return;
+
+  len = strlen(src);
+
+  if (len <= width) {
+    snprintf(dst, dstsz, "%s", src);
+  } else if (width > 3) {
+    snprintf(dst, dstsz, "%.*s...", (int)(width - 3), src);
+  } else {
+    snprintf(dst, dstsz, "%.*s", (int)width, src);
   }
 }
+
+static void build_display_name(char *dst, size_t dstsz, const char *name, int depth)
+{
+  char temp[MAX_PATH_LEN];
+  snprintf(temp, sizeof(temp), "%*s%s", depth * 2, "", name);
+  format_truncated_left(dst, dstsz, temp, 54);
+}
+
 
 static const char *lookup_user(uid_t uid)
 {
@@ -333,14 +341,14 @@ static void print_aggregate_summary(const struct summary *total, int ndir)
   // TODO: print the final total "Analyzed N directories:" block when ndir > 1.
   if (ndir > 1) {
     printf("Analyzed %d directories:\n"
-      "  total # of files:        %16d\n"
-      "  total # of directories:  %16d\n"
-      "  total # of links:        %16d\n"
-      "  total # of pipes:        %16d\n"
-      "  total # of sockets:      %16d\n"
-      "  total # of entries:      %16d\n"
-      "  total file size:         %16llu\n"
-      "  total # of blocks:       %16llu\n",
+          "  total # of files:%24u\n"
+          "  total # of directories:%18u\n"
+          "  total # of links:%24u\n"
+          "  total # of pipes:%24u\n"
+          "  total # of sockets:%22u\n"
+          "  total # of entries:%22u\n"
+          "  total file size:%25llu\n"
+          "  total # of blocks:%22llu\n",
       ndir, total->files, total->dirs, total->links, total->fifos, total->socks,
       total->files + total->dirs + total->links + total->fifos + total->socks, 
       total->size, total->blocks);
@@ -478,6 +486,62 @@ int main(int argc, char *argv[])
   //   - print footer + per-directory summary using correct singular/plural words
   //   - add dstat to tstat
   // - if ndir > 1, print aggregate statistics block
+
+  for (int j = 0; j < ndir; j++) {
+    if (directories[j]){
+      struct summary individual_summary = {0};
+
+      //process each directory
+      printf("%s%s", print_formats[0], print_formats[1]);
+      printf("%s\n", directories[j]);
+
+      process_dir(directories[j], 1, pattern, &individual_summary/*, flags*/);
+      printf("%s", print_formats[1]);
+
+      //TODO: update individual_summary
+      struct stat* individual_st;
+      if(lstat(directories[j], individual_st) == -1){
+        panic("Invalid file", NULL);
+      }
+
+      char type_char = get_type_char(individual_st);
+      summary_add_entry(&individual_summary, individual_st, type_char);
+
+      //TODO: print individual summary
+      char left[256];
+      const char *s_files  = pluralize(individual_summary.files, "", "s");
+      const char *s_links  = pluralize(individual_summary.links, "", "s");
+      const char *s_pipes  = pluralize(individual_summary.fifos, "", "s");
+      const char *s_socks  = pluralize(individual_summary.socks, "", "s");
+      const char *dir_word = pluralize(individual_summary.dirs, "directory", "directories");
+
+      snprintf(left, sizeof left,
+              "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
+              individual_summary.files, s_files,
+              individual_summary.dirs,  dir_word,
+              individual_summary.links, s_links,
+              individual_summary.fifos, s_pipes,
+              individual_summary.socks, s_socks);
+            
+      char namecol[256];
+      snprintf(namecol, sizeof namecol, "%s", left);
+
+      // Print a footer row aligned to Size/Blocks
+      printf("%-54s  %8s  %10llu  %8llu    %c\n", //TODO: !! YOU MIGHT WANT TO CHANGE THIS
+            left,               /* full sentence, not truncated */
+            "",                 /* blank User:Group field (8 spaces) */
+            (unsigned long long)individual_summary.size,
+            (unsigned long long)individual_summary.blocks,
+            ' ');               /* blank Type column */
+      printf("\n");
+
+      //TODO: update tstat
+      summary_add(&tstat, &individual_summary);
+    }
+  }
+
+  //TODO: print tstat if more than one directory was traversed
+  print_aggregate_summary(&tstat, ndir);
 
   (void)tstat;
   return 0;
