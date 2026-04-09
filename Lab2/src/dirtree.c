@@ -290,15 +290,15 @@ static int submatch(const char *s, const char *p)
     if (*s == '\0') {
       // if search keyword is "", and if pattern can be skipped (like (abc)* or x* repeated), treat as match. Else, return 0
       while (*p) { //case: x*
-        if (*(p + 1) == '*') {
-          p += 2;
-        }
-        else if (*p == '(') { // case: (abc)*
+        if (*p == '(') { // case: (abc)*
           const char *close = find_close(p);
           if (close && *(close + 1) == '*')
             p = close + 2; // skip (group)*
           else
             return 0;
+        }
+        else if (*(p + 1) == '*') {
+          p += 2;
         }
         else {
           return 0;
@@ -316,20 +316,18 @@ static int submatch(const char *s, const char *p)
       const char *after = p_closed + 1; // get first char after ')'
 
       if (*after == '*') {  // this group should be checked for repetition
-        char tp = p+1;
-        char ts = s;
-        int group_len = p_closed - (p+1);
+        const char *ts = s;
   
         while(1){ // ts = string, after = the * sign after pattern, tp: pattern
           // TODO: Check 0 repetition
           if(submatch(ts, after + 1)) return 1; //if the rest of the string is the same without the pattern, return 1
           // TODO: Check whether one full abc matches at s
-          if(match_group_once(ts, tp, p_closed) == -1) return 0;
+          int advance = match_group_once(ts, p+1, p_closed);
+          if(advance < 0) return 0;
           // TODO: If yes, advance s by len(pattern) and try rest again
-          ts += group_len;
+          ts += advance;
         }
 
-        return 0;
       }
       else {
         int k = 0;  // compare inner literally
@@ -379,30 +377,12 @@ static int submatch(const char *s, const char *p)
 
 static int match(const char *str, const char *pattern)
 { // TODO: PARTIAL-match wrapper: try submatch() starting at every position in str.
-  // pattern may match any contiguous substring of str.
-
-  // TODO: Try submatch() starting at every position in str. If submatch succeeds return 1
-  // TODO: Else, advance to next position
-
-  // TODO: Corner case: If pattern is invalid or empty return 0
-  if (str == NULL || pattern == NULL) {
-    return 0;
-  }
-
-  // TODO: Try matching at each possible start position.
-  // TODO: At each step:
-  // TODO:   if submatch(current_position, pattern) succeeds -> return 1
-  // TODO:   else advance to next starting position
-  //
-  // TODO: Important:
-  // TODO:   You must also try the final position where *str == '\0'
-  // TODO:   because patterns like "a*" or "(ab)*" can match an empty substring.
+  if (str == NULL || pattern == NULL) return 0;
 
   do {
-    // TODO: if submatch(str, pattern) succeeds, return 1
+    if (submatch(str, pattern)) return 1;
   } while (*str++);
 
-  // TODO: No starting position worked.
   return 0;
 }
 
@@ -410,8 +390,7 @@ static int entry_matches_filter(const char *name, unsigned int flags)
 {
   // TODO: if filtering is disabled, always return 1; otherwise call match().
   if(flags != F_Filter) return 1;
-  match(name, pattern);
-  return 0;
+  return match(name, pattern);
 }
 
 /// @brief print a parent directory line without metadata
@@ -534,54 +513,71 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   }
   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare); //sort directories in that depth first showing directories then alphabetical
 
-  // ------ NO F FILTER ------
-  if (pstr == NULL){
-      for (int i = 0; i < cap; i++) { //For every entry
-      //TODO: build child path 
-      const char *name = list_directories[i].d_name;
-      char full_path[MAX_PATH_LEN];
-      if (make_child_path(full_path, sizeof full_path, dn, name) == -1) {
-        closedir(dir);
-        free(list_directories);
-        return -1;
-      }
+    // ------ WITH F FILTER ------
+  int any_match_in_this_dir = 0;
 
-      //TODO: call lstat and get info
-      struct stat st;
-      if (lstat(full_path, &st) == -1) { perror("lstat"); continue; }  //get lstat of path, and increment the directory's stats
-      // stats->size   += st.st_size;
-      // stats->blocks += st.st_blocks;
+  for (int i = 0; i < cap; i++) {
+    const char *name = list_directories[i].d_name;
+    char full_path[MAX_PATH_LEN];
+    struct stat st;
+    int self_matches;
+    int child_has_match = 0;
+    int is_dir;
+    char namecol[256];
 
-      //TODO: get type of file
-      char typech = get_type_char(&st);
-
-      //TODO: update stats
-      summary_add_entry(stats, &st, typech);
-
-      //TODO: apply indentation and ellipses if needed
-      char namecol[256];
-      build_display_name(namecol, sizeof(namecol), name, depth);
-
-      //print
-      print_entry_line(namecol, &st);
-
-      //TODO: if not reached -d depth, keep printing children
-      if (S_ISDIR(st.st_mode) && depth < max_depth) {
-        (void)process_dir(full_path, depth + 1, pstr, stats, flags); // keep printing children
-      }
-
+    if (make_child_path(full_path, sizeof(full_path), dn, name) == -1) {
+      // TODO: decide whether to skip this entry or treat it as fatal.
+      continue;
     }
-    closedir(dir);
-    free(list_directories);
-    return 1;
-  }
 
-  // ------ WITH F FILTER ------
-  
+    if (lstat(full_path, &st) == -1) {
+      // TODO: for this assignment, only permission-denied needs special handling.
+      // TODO: decide whether to print an in-tree permission error here or just skip.
+      continue;
+    }
+
+    is_dir = S_ISDIR(st.st_mode);
+    self_matches = entry_matches_filter(name, flags);
+
+    if (is_dir) {
+      // TODO: recurse into directories even when they do not match.
+      // TODO: process_dir() should return whether this subtree contains at least
+      // TODO: one visible/matching descendant.
+      // TODO: pass the correct arguments for filtered traversal.
+      //
+      // child_has_match = process_dir(full_path, depth + 1, pstr, stats, flags);
+
+      if (self_matches || child_has_match) {
+        build_display_name(namecol, sizeof(namecol), name, depth);
+
+        if (self_matches) {
+          print_entry_line(namecol, &st);
+          summary_add_entry(stats, &st, get_type_char(&st));
+        }
+        else {
+          // non-matching directory with matching descendants:
+          // print only its name, no metadata, no counting
+          // TODO: implement print_parent_only_line()
+          // print_parent_only_line(namecol);
+        }
+
+        any_match_in_this_dir = 1;
+      }
+    }
+    else {
+      if (self_matches) {
+        build_display_name(namecol, sizeof(namecol), name, depth);
+        print_entry_line(namecol, &st);
+        summary_add_entry(stats, &st, get_type_char(&st));
+        any_match_in_this_dir = 1;
+      }
+    }
+  }
 
   closedir(dir);
   free(list_directories);
-  return 1;
+  return any_match_in_this_dir;
+
 }
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
@@ -666,23 +662,6 @@ int main(int argc, char *argv[])
 
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
-
-  // process each directory
-  // TODO
-  // Pseudo-code
-  // - if -f is enabled, validate pattern before printing anything
-  // - reset total statistics (tstat)
-  // - loop over all root directories in 'directories'
-  //   - reset per-directory statistics (dstat)
-  //   - print header
-  //   - print directory name (root)
-  //   - if root does not exist:
-  //   -   print the indented "ERROR: No such file or directory" line
-  //   - else:
-  //   -   call process_dir() with the proper initial prefix / depth state
-  //   - print footer + per-directory summary using correct singular/plural words
-  //   - add dstat to tstat
-  // - if ndir > 1, print aggregate statistics block
 
   for (int j = 0; j < ndir; j++) {
     if (directories[j]){
