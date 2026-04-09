@@ -20,6 +20,8 @@
 #include <assert.h>
 #include <grp.h>
 #include <pwd.h>
+#include <libgen.h>
+
 /// @brief output control flags
 #define F_DEPTH    0x1        ///< print directory tree
 #define F_Filter   0x2        ///< pattern matching
@@ -392,6 +394,53 @@ static int entry_matches_filter(const char *name, unsigned int flags)
   return match(name, pattern);
 }
 
+static int subtree_has_match(const char *dn, int depth, unsigned int flags)
+{
+  DIR *dir;
+  struct dirent *list_directories = NULL;
+  struct dirent *e;
+  int cap = 0;
+  int found = 0;
+
+  dir = opendir(dn);
+  if (dir == NULL) return 0;
+
+  while ((e = get_next(dir)) != NULL) {
+    struct dirent *tmp = realloc(list_directories, (cap + 1) * sizeof(struct dirent));
+
+    if (tmp == NULL) {
+      closedir(dir);
+      free(list_directories);
+      panic(print_formats[6], NULL);
+    }
+
+    list_directories = tmp;
+    list_directories[cap++] = *e;
+  }
+
+  qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
+
+  for (int i = 0; i < cap && !found; i++) {
+    const char *name = list_directories[i].d_name;
+    char full_path[MAX_PATH_LEN];
+    struct stat st;
+
+    if (make_child_path(full_path, sizeof(full_path), dn, name) == -1) continue;
+    if (lstat(full_path, &st) == -1) continue;
+
+    if (entry_matches_filter(name, flags)) {
+      found = 1;
+    }
+    else if (S_ISDIR(st.st_mode) && depth < max_depth) {
+      found = subtree_has_match(full_path, depth + 1, flags);
+    }
+  }
+
+  closedir(dir);
+  free(list_directories);
+  return found;
+}
+
 // TODO: print the root directory line shown right below the header
 static void print_root_line(const char *root_path)
 {
@@ -486,7 +535,7 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   DIR *dir = opendir(dn);                  //open directory
   if(dir == NULL){
     if (errno == EACCES) print_permission_denied_line(depth);
-    return -1;
+    return 0;
   }           //return if directory doesn't exist
 
   struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
@@ -574,8 +623,8 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
     self_matches = entry_matches_filter(name, flags);
 
     if (is_dir) { //if it is a directory
-      if (depth < max_depth) {
-        child_has_match = process_dir(full_path, depth + 1, pstr, stats, flags);
+      if (!self_matches && depth < max_depth) {
+        child_has_match = subtree_has_match(full_path, depth + 1, flags);
       }
 
       if (self_matches || child_has_match) { //if either one is a match, we have to print the parent file name so get formatting
@@ -590,6 +639,10 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
         }
 
         any_match_in_this_dir = 1;
+      }
+
+      if (depth < max_depth) {
+        process_dir(full_path, depth + 1, pstr, stats, flags);
       }
     } else { //if it's not a directory
       if (self_matches) {
@@ -613,6 +666,8 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
 /// @param ... parameter to the error format string
 void syntax(const char *argv0, const char *error, ...)
 {
+  int exit_code = EXIT_FAILURE;
+
   if (error) {
     va_list ap;
 
@@ -621,6 +676,9 @@ void syntax(const char *argv0, const char *error, ...)
     va_end(ap);
 
     printf("\n\n");
+  }
+  else {
+    exit_code = EXIT_SUCCESS;
   }
 
   assert(argv0 != NULL);
@@ -634,9 +692,9 @@ void syntax(const char *argv0, const char *error, ...)
                   " -f pattern | filter entries using pattern (supports '?', '*', and '()')\n"
                   " -h         | print this help\n"
                   " path...    | list of space-separated paths (max %d). Default is the current directory.\n",
-                  basename(argv0), MAX_DEPTH, MAX_DIR);
+                  basename((char *)argv0), MAX_DEPTH, MAX_DIR);
 
-  exit(EXIT_FAILURE);
+  exit(exit_code);
 }
 
 /// @brief program entry point
