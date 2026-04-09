@@ -389,16 +389,8 @@ static int match(const char *str, const char *pattern)
 static int entry_matches_filter(const char *name, unsigned int flags)
 {
   // TODO: if filtering is disabled, always return 1; otherwise call match().
-  if(flags != F_Filter) return 1;
+  if ((flags & F_Filter) == 0) return 1;
   return match(name, pattern);
-}
-
-/// @brief print a parent directory line without metadata
-//unnecessary
-static void print_parent_only_line(const char *display_name)
-{
-  // TODO: print only the left column when a non-matching directory has matching descendants.
-  (void)display_name;
 }
 
 // TODO: print the root directory line shown right below the header
@@ -413,9 +405,12 @@ static void print_missing_path_line(void)
   printf(print_formats[2], "", "No such file or directory");
 }
 
-static void print_permission_denied_line(void)
+static void print_permission_denied_line(int depth)
 {
-  fprintf(stderr, print_formats[2], "", "Permission denied");
+  char indent[64];
+
+  snprintf(indent, sizeof(indent), "%*s", depth * 2, "");
+  fprintf(stderr, print_formats[2], indent, "Permission denied");
 }
 
 static void print_entry_line(const char *display_name, const struct stat *st)
@@ -491,7 +486,7 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   // TODO: open directory and handle failure
   DIR *dir = opendir(dn);                  //open directory
   if(dir == NULL){
-    if (errno == EACCES) print_permission_denied_line();
+    if (errno == EACCES) print_permission_denied_line(depth);
     return -1;
   }           //return if directory doesn't exist
 
@@ -513,8 +508,52 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   }
   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare); //sort directories in that depth first showing directories then alphabetical
 
+  // ------ NO F FILTER ------
+  if (!(flags & F_Filter)){
+    for (int i = 0; i < cap; i++) { //For every entry
+    //TODO: build child path 
+      const char *name = list_directories[i].d_name;
+      char full_path[MAX_PATH_LEN];
+      if (make_child_path(full_path, sizeof full_path, dn, name) == -1) {
+        closedir(dir);
+        free(list_directories);
+        return -1;
+      }
+
+      //TODO: call lstat and get info
+      struct stat st;
+      if (lstat(full_path, &st) == -1) { perror("lstat"); continue; }  //get lstat of path
+
+      //TODO: get type of file
+      char typech = get_type_char(&st);
+
+      //TODO: update stats
+      summary_add_entry(stats, &st, typech);
+
+      //TODO: apply indentation and ellipses if needed
+      char namecol[256];
+      build_display_name(namecol, sizeof(namecol), name, depth);
+
+      //print
+      print_entry_line(namecol, &st);
+
+      //TODO: if not reached -d depth, keep printing children
+      if (S_ISDIR(st.st_mode) && depth < max_depth) {
+        (void)process_dir(full_path, depth + 1, pstr, stats, flags); // keep printing children
+      }
+
+    }
+    closedir(dir);
+    free(list_directories);
+    return 1;
+  }
+
     // ------ WITH F FILTER ------
   int any_match_in_this_dir = 0;
+
+  if(!validate_pattern(pstr)){
+    panic(print_formats[5], NULL);
+  }
 
   for (int i = 0; i < cap; i++) {
     const char *name = list_directories[i].d_name;
@@ -526,45 +565,38 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
     char namecol[256];
 
     if (make_child_path(full_path, sizeof(full_path), dn, name) == -1) {
-      // TODO: decide whether to skip this entry or treat it as fatal.
-      continue;
+      closedir(dir);
+      free(list_directories);
+      return -1;
     }
 
     if (lstat(full_path, &st) == -1) {
-      // TODO: for this assignment, only permission-denied needs special handling.
-      // TODO: decide whether to print an in-tree permission error here or just skip.
+      if (errno == EACCES) print_permission_denied_line(depth);
       continue;
     }
 
     is_dir = S_ISDIR(st.st_mode);
     self_matches = entry_matches_filter(name, flags);
 
-    if (is_dir) {
-      // TODO: recurse into directories even when they do not match.
-      // TODO: process_dir() should return whether this subtree contains at least
-      // TODO: one visible/matching descendant.
-      // TODO: pass the correct arguments for filtered traversal.
-      //
-      // child_has_match = process_dir(full_path, depth + 1, pstr, stats, flags);
+    if (is_dir) { //if it is a directory
+      if (depth < max_depth) {
+        child_has_match = process_dir(full_path, depth + 1, pstr, stats, flags);
+      }
 
-      if (self_matches || child_has_match) {
+      if (self_matches || child_has_match) { //if either one is a match, we have to print the parent file name so get formatting
         build_display_name(namecol, sizeof(namecol), name, depth);
 
-        if (self_matches) {
+        if (self_matches) { //if this one is a match, we have to print and append its stats too
           print_entry_line(namecol, &st);
           summary_add_entry(stats, &st, get_type_char(&st));
         }
         else {
-          // non-matching directory with matching descendants:
-          // print only its name, no metadata, no counting
-          // TODO: implement print_parent_only_line()
-          // print_parent_only_line(namecol);
+          printf("%s\n", namecol); //if only child is a match, print only the formatted file name
         }
 
         any_match_in_this_dir = 1;
       }
-    }
-    else {
+    } else { //if it's not a directory
       if (self_matches) {
         build_display_name(namecol, sizeof(namecol), name, depth);
         print_entry_line(namecol, &st);
@@ -577,7 +609,6 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   closedir(dir);
   free(list_directories);
   return any_match_in_this_dir;
-
 }
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
