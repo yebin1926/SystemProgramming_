@@ -269,8 +269,21 @@ static int validate_pattern(const char *p)
   return 1;
 }
 
+static int match_group_once(const char *s, const char *group_start, const char *group_end){
+  int count = 0;
+  while(group_start != group_end){
+    if (*s == '\0') return -1;
+    if(*s != *group_start && *group_start != '?') return -1;
+    s++;
+    group_start++;
+    count++;
+  }
+  return count;
+}
 
-// TODO: Helper function for matching logic
+
+
+// TODO: Tests whether the pattern matches the START of the string
 static int submatch(const char *s, const char *p)
 {
   while (*p != '\0') {
@@ -303,17 +316,19 @@ static int submatch(const char *s, const char *p)
       const char *after = p_closed + 1; // get first char after ')'
 
       if (*after == '*') {  // this group should be checked for repetition
-        
-        // TODO: replace this group-repetition logic.
-        // TODO: Current version depended on check_repetition_match() and a special
-        // TODO: non-boolean return path, which makes control flow too fragile.
-        // TODO: Simpler plan:
-        // TODO:   1. first try zero repetitions:
-        // TODO:        if (submatch(s, after + 1)) return 1;
-        // TODO:   2. then try consuming one full group at a time
-        // TODO:      as long as the group matches at the current s
-        // TODO:   3. after each successful group consumption, recurse on the
-        // TODO:      pattern after the '*'
+        char tp = p+1;
+        char ts = s;
+        int group_len = p_closed - (p+1);
+  
+        while(1){ // ts = string, after = the * sign after pattern, tp: pattern
+          // TODO: Check 0 repetition
+          if(submatch(ts, after + 1)) return 1; //if the rest of the string is the same without the pattern, return 1
+          // TODO: Check whether one full abc matches at s
+          if(match_group_once(ts, tp, p_closed) == -1) return 0;
+          // TODO: If yes, advance s by len(pattern) and try rest again
+          ts += group_len;
+        }
+
         return 0;
       }
       else {
