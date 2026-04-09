@@ -282,7 +282,6 @@ static int match_group_once(const char *s, const char *group_start, const char *
 }
 
 
-
 // TODO: Tests whether the pattern matches the START of the string
 static int submatch(const char *s, const char *p)
 {
@@ -551,10 +550,6 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
     // ------ WITH F FILTER ------
   int any_match_in_this_dir = 0;
 
-  if(!validate_pattern(pstr)){
-    panic(print_formats[5], NULL);
-  }
-
   for (int i = 0; i < cap; i++) {
     const char *name = list_directories[i].d_name;
     char full_path[MAX_PATH_LEN];
@@ -693,6 +688,11 @@ int main(int argc, char *argv[])
 
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
+
+  if ((flags & F_Filter) && !validate_pattern(pattern)) {
+    printf("%s\n", print_formats[5]);
+    return EXIT_FAILURE;
+  }
 
   for (int j = 0; j < ndir; j++) {
     if (directories[j]){
