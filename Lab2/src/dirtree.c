@@ -448,7 +448,7 @@ static void print_root_line(const char *root_path)
 }
 
 // TODO: print the missing-path error line for a root entry
-static void print_missing_path_line(void)
+static void print_missing_path_line()
 {
   printf(print_formats[2], "", "No such file or directory");
 }
@@ -457,7 +457,7 @@ static void print_permission_denied_line(int depth)
 {
   char indent[64];
 
-  snprintf(indent, sizeof(indent), "%*s", depth * 2, "");
+  snprintf(indent, sizeof(indent), "%*s", (depth-1) * 2, "");
   fprintf(stderr, print_formats[2], indent, "Permission denied");
 }
 
@@ -498,7 +498,7 @@ static void print_directory_summary(const struct summary *stats)
   format_truncated_left(summary_col, sizeof(summary_col), left, 68);
 
   printf("%s", print_formats[1]);
-  printf("%-68s%14llu%9llu\n",
+  printf("%-68s   %14llu %9llu\n",
         summary_col,
         (unsigned long long)stats->size,
         (unsigned long long)stats->blocks);
@@ -518,7 +518,7 @@ static void print_aggregate_summary(const struct summary *total, int ndir)
     printf("  total # of entries:%22u\n",
           total->files + total->dirs + total->links + total->fifos + total->socks);
     printf("  total file size:%25llu\n", total->size);
-    printf("  total # of blocks:%22llu\n", total->blocks);
+    printf("  total # of blocks:%23llu\n", total->blocks);
   }
 }
 
@@ -535,6 +535,7 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
   DIR *dir = opendir(dn);                  //open directory
   if(dir == NULL){
     if (errno == EACCES) print_permission_denied_line(depth);
+    if (errno == ENOENT) print_missing_path_line();
     return 0;
   }           //return if directory doesn't exist
 
@@ -596,7 +597,7 @@ static int process_dir(const char *dn, int depth, const char *pstr, struct summa
     return 1;
   }
 
-    // ------ WITH F FILTER ------
+  // ------ WITH F FILTER ------
   int any_match_in_this_dir = 0;
 
   for (int i = 0; i < cap; i++) {
