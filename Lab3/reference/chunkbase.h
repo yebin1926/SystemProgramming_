@@ -11,14 +11,14 @@
 #include <unistd.h>
 
 /*
-   Representation used in this baseline:
-   - Each *allocated block* consists of one header Chunk (1 unit) and
-     zero or more payload Chunks (N units).
-   - The header stores the *total* number of units (header + payload),
-     called "span". Therefore:
-         span = 1 (header) + payload_units
-   - The free list is a singly-linked list of free blocks ordered by
-     increasing address (non-circular).
+  Representation used in this baseline:
+  - Each *allocated block* consists of one header Chunk (1 unit) and
+    zero or more payload Chunks (N units).
+  - The header stores the *total* number of units (header + payload),
+    called "span". Therefore:
+        span = 1 (header) + payload_units
+  - The free list is a singly-linked list of free blocks ordered by
+    increasing address (non-circular).
 */
 
 typedef struct Chunk *Chunk_T;
