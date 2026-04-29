@@ -26,7 +26,7 @@ int s_heap_booted = FALSE;
 #ifndef NDEBUG
 
 static int
-check_heap_validity(void)
+check_heap_validity(void) //heap: whole physical block in order
 {
     Chunk_T w;
     
@@ -41,11 +41,15 @@ check_heap_validity(void)
     }
 
     /* Walk all physical blocks in address order. and check if their chunk is valid*/
+    char *expected_end = (char *)s_heap_lo; //expected last heap block
     for (w = (Chunk_T)s_heap_lo;
-         w && w < (Chunk_T)s_heap_hi;
-         w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
+        w && w < (Chunk_T)s_heap_hi;
+        w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
         if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
+
+        expected_end = (char *)w + (size_t)w->span * (size_t)CHUNK_UNIT;
     }
+    if (expected_end != (char*)s_heap_hi) return FALSE; //if the last block doesn't align exactly to end
 
     /* Walk the free list; ensure nodes are free and not trivially coalescible. */
     for (w = s_free_head; w; w = chunk_get_next_free(w)) {
@@ -177,7 +181,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     assert(alloc_span >= 2);      /* allocated block must be ≥ H+F */
     assert(remain_span >= 2);     /* remaining free block must be ≥ H+F */
 
-    assert(c >= (Chunk_T)s_heap_lo && c <= (Chunk_T)s_heap_hi);
+    assert(c >= (Chunk_T)s_heap_lo && c < (Chunk_T)s_heap_hi);
     assert(chunk_get_status(c) == CHUNK_FREE);
     assert(remain_span >= 2);
 
@@ -247,33 +251,36 @@ static void freelist_push_front(Chunk_T c)
     chunk_set_status(c, CHUNK_FREE);
 
     // Fast path for small blocks: push with no coalesce
-    if (chunk_get_span_units(c) <= TINY_SPAN) {
-        chunk_set_prev_free(c, NULL);
-        chunk_set_next_free(c, s_free_head);
-        if (s_free_head) chunk_set_prev_free(s_free_head, c);
-        s_free_head = c;
+    // if (chunk_get_span_units(c) <= TINY_SPAN) {
+    //     chunk_set_prev_free(c, NULL);
+    //     chunk_set_next_free(c, s_free_head);
+    //     if (s_free_head) chunk_set_prev_free(s_free_head, c);
+    //     s_free_head = c;
 
-        /* Keep the head invariant tight. */
-        assert(s_free_head != NULL);
-        assert(chunk_get_prev_free(s_free_head) == NULL);
-        return;
-    }
+    //     /* Keep the head invariant tight. */
+    //     assert(s_free_head != NULL);
+    //     assert(chunk_get_prev_free(s_free_head) == NULL);
+    //     return;
+    // }
 
     chunk_set_prev_free(c, NULL);
     chunk_set_next_free(c, s_free_head);
     if (s_free_head) chunk_set_prev_free(s_free_head, c);
     s_free_head = c;
 
-    /* 2) Coalesce with physical NEXT first (survivor stays 'c') */
+    // 2) Coalesce with physical NEXT first (survivor stays 'c')
     {
         Chunk_T nxt = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
+        assert(chunk_get_prev_adjacent(nxt, s_heap_lo, s_heap_hi) == c);
         if (nxt && chunk_get_status(nxt) == CHUNK_FREE) {
             c = coalesce_two(c, nxt); /* survivor is 'c' */
             /* after coalesce_two, if c is head, its prev is NULL already */
         }
     }
+    // 1) Coalesce with physical PREV block
     {
         Chunk_T prv = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
+        assert(chunk_get_adjacent(prv, s_heap_lo, s_heap_hi) == c);
         if (prv && chunk_get_status(prv) == CHUNK_FREE) {
             Chunk_T old_next_head = chunk_get_next_free(c);
             (void)old_next_head; /* not needed, but clarifies the flow */
@@ -336,9 +343,9 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     // if (c == (Chunk_T)-1)
     //     return NULL;
 
-    if ((void*)c == (void*)-1)   return NULL;
+    if ((void*)c == (void*)-1)   return NULL; //sbrk() returns (void *) -1 on failure
 
-    s_heap_hi = sbrk(0);
+    s_heap_hi = sbrk(0); //sbrk(0) returns the current program break - the end boundary
 
     chunk_set_span_units(c, (int)grow_span);
     chunk_set_next_free(c, NULL);
@@ -347,11 +354,15 @@ static Chunk_T sys_grow_and_link(size_t need_units)
 
     Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
 
-    if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
-        c = coalesce_two(c_prev_adj, c);
-        assert(check_heap_validity());
-        return c;
-    } 
+    // //if prev adj chunk is also free, coalesce
+    // int cond1 = c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi);
+    // int cond2 = (c == chunk_get_adjacent(c_prev_adj, s_heap_lo, s_heap_hi));
+
+    // if(cond1 && chunk_get_status(c_prev_adj) == CHUNK_FREE && cond2){
+    //     c = coalesce_two(c_prev_adj, c);
+    //     assert(check_heap_validity());
+    //     return c;
+    // } 
     freelist_push_front(c);
     assert(check_heap_validity());
 
@@ -359,7 +370,7 @@ static Chunk_T sys_grow_and_link(size_t need_units)
 }
 
 
-void * heapgr_malloc(size_t size)
+void * heapmgr_malloc(size_t size)
 {
     // static int booted = FALSE; //tracks whether heap was initialized
     Chunk_T cur; //cur: walks free list, prev,prevprev: tracks prev nodes
