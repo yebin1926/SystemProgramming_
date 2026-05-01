@@ -64,9 +64,26 @@ get_bin_index(int span_units)
 }
 
 #ifndef NDEBUG
+static int count_bin_exist(Chunk_T c){
+    int count = 0;
+    for (int i = 0; i < NUM_BINS; i++) { //for every bin's head
+        Chunk_T head = s_bins[i];
+        for (Chunk_T w = head; w; w = chunk_get_next_free(w)) { //iterate through free blocks in each bin
+            if (w == c) count++;
+        }
+    }
+    return count;
+}
+
 static int
 check_heap_validity(void)
 {
+    /* Required change for assignment:
+     * Strengthen the bin-level validity check so it verifies that every free
+     * physical block appears in some bin exactly once. As written, this can
+     * miss two serious heapmgr2-specific bugs:
+     * 1. a free block that has been lost from all bins, and
+     * 2. the same free block linked into multiple bins or multiple times. */
     int i;
     Chunk_T w;
     char *expected_end;
@@ -80,7 +97,7 @@ check_heap_validity(void)
         return FALSE;
     }
 
-    if (s_heap_lo == s_heap_hi) {
+    if (s_heap_lo == s_heap_hi) { //if heap is empty, all items in bins must be NULL
         for (i = 0; i < NUM_BINS; i++) {
             if (s_bins[i] != NULL) {
                 fprintf(stderr, "Inconsistent empty heap: bin %d not empty\n", i);
@@ -90,12 +107,23 @@ check_heap_validity(void)
         return TRUE;
     }
 
-    expected_end = (char *)s_heap_lo;
+    // Walk all physical blocks in address order. and check if their chunk is valid
+    expected_end = (char *)s_heap_lo; //expected last heap block (physical)
     for (w = (Chunk_T)s_heap_lo;
-         w && w < (Chunk_T)s_heap_hi;
-         w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
-        if (!chunk_is_valid(w, s_heap_lo, s_heap_hi))
+        w && w < (Chunk_T)s_heap_hi;
+        w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) { //for every physical block
+        if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) //check if chunk is valid
             return FALSE;
+        if (chunk_get_status(w) == CHUNK_FREE){ //every free physical block must appear in some bin exactly once
+            int count = count_bin_exist(w);
+            if(count < 1){
+                fprintf(stderr, "a free block doesn't appear in the bin\n");
+                return FALSE;
+            } else if (count > 1){
+                fprintf(stderr, "a free block appears more than once in the bins\n");
+                return FALSE;
+            }
+        }
         expected_end = (char *)w + (size_t)chunk_get_span_units(w) * (size_t)CHUNK_UNIT;
     }
     if (expected_end != (char *)s_heap_hi) {
@@ -103,35 +131,35 @@ check_heap_validity(void)
         return FALSE;
     }
 
-    for (i = 0; i < NUM_BINS; i++) {
+    for (i = 0; i < NUM_BINS; i++) { //for every bin, do the following checks
         Chunk_T head = s_bins[i];
 
-        if (head && chunk_get_prev_free(head) != NULL) {
+        if (head && chunk_get_prev_free(head) != NULL) { //head shouldn't be null but its prev block should be null
             fprintf(stderr, "Bin %d head has non-NULL prev\n", i);
             return FALSE;
         }
 
-        for (w = head; w; w = chunk_get_next_free(w)) {
+        for (w = head; w; w = chunk_get_next_free(w)) { //iterate through free blocks in bin
             Chunk_T n;
 
-            if (chunk_get_status(w) != CHUNK_FREE) {
+            if (chunk_get_status(w) != CHUNK_FREE) { //each block should be free
                 fprintf(stderr, "Non-free chunk in bin %d\n", i);
                 return FALSE;
             }
-            if (!chunk_is_valid(w, s_heap_lo, s_heap_hi))
+            if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) //each block should be valid
                 return FALSE;
-            if (get_bin_index(chunk_get_span_units(w)) != i) {
+            if (get_bin_index(chunk_get_span_units(w)) != i) { //each block should be at the right bin
                 fprintf(stderr, "Wrong bin for span in bin %d\n", i);
                 return FALSE;
             }
 
-            n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi);
+            n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi); //each block's adjacent block shouldn't be free (else it has to coalesce)
             if (n != NULL && chunk_get_status(n) == CHUNK_FREE) {
                 fprintf(stderr, "Uncoalesced adjacent free chunks\n");
                 return FALSE;
             }
 
-            n = chunk_get_next_free(w);
+            n = chunk_get_next_free(w); //next block's prev block should be curr block
             if (n != NULL && chunk_get_prev_free(n) != w) {
                 fprintf(stderr, "Next->prev symmetry broken in bin %d\n", i);
                 return FALSE;
@@ -139,12 +167,12 @@ check_heap_validity(void)
 
             n = chunk_get_prev_free(w);
             if (n == NULL) {
-                if (w != head) {
+                if (w != head) { //if prev block is null, curr block should be head
                     fprintf(stderr, "Non-head node with NULL prev in bin %d\n", i);
                     return FALSE;
                 }
             }
-            else if (chunk_get_next_free(n) != w) {
+            else if (chunk_get_next_free(n) != w) { //if prev block exists, its next block should be curr block
                 fprintf(stderr, "Prev->next symmetry broken in bin %d\n", i);
                 return FALSE;
             }

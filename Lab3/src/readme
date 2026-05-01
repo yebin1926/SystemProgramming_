@@ -1,0 +1,109 @@
+Name: 편예빈
+Student ID: 2021-10421
+
+# Output: (test2-local)
+
+       Executable          Test   Count   Size Time_m Time_f   Time        Mem
+
+==============================================================================
+./testheapmgrgnu LIFO_fixed 50000 1000 0.02 0.00 0.03 50282496
+./testheapmgrgnu FIFO_fixed 50000 1000 0.01 0.01 0.02 8192
+./testheapmgrgnu LIFO_random 50000 1000 0.01 0.00 0.01 25681920
+./testheapmgrgnu FIFO_random 50000 1000 0.01 0.00 0.01 25681920
+./testheapmgrgnu random_fixed 50000 1000 - - 0.01 10739712
+./testheapmgrgnu random_random 50000 1000 - - 0.01 8110080
+./testheapmgrgnu worst 50000 1000 - - 0.01 13651968
+==============================================================================
+./testheapmgrgnu LIFO_fixed 30000 10000 0.05 0.16 0.21 0
+./testheapmgrgnu FIFO_fixed 30000 10000 0.03 0.04 0.06 0
+./testheapmgrgnu LIFO_random 30000 10000 0.02 0.00 0.02 150487040
+./testheapmgrgnu FIFO_random 30000 10000 0.02 0.01 0.03 48513024
+./testheapmgrgnu random_fixed 30000 10000 - - 0.03 0
+./testheapmgrgnu random_random 30000 10000 - - 0.01 47267840
+./testheapmgrgnu worst 30000 10000 - - 0.02 75677696
+==============================================================================
+./testheapmgrkr LIFO_fixed 50000 1000 0.01 0.00 0.01 51200000
+./testheapmgrkr FIFO_fixed 50000 1000 0.01 0.00 0.02 51200000
+./testheapmgrkr LIFO_random 50000 1000 0.06 0.04 0.10 26296320
+./testheapmgrkr FIFO_random 50000 1000 0.05 0.02 0.07 26296320
+./testheapmgrkr random_fixed 50000 1000 - - 0.46 16171008
+./testheapmgrkr random_random 50000 1000 - - 0.24 8273920
+./testheapmgrkr worst 50000 1000 - - 2.46 14139392
+==============================================================================
+./testheapmgrkr LIFO_fixed 30000 10000 39.22 37.88 77.09 491520000
+./testheapmgrkr FIFO_fixed 30000 10000 50.39 0.01 50.39 491520000
+./testheapmgrkr LIFO_random 30000 10000 7.89 4.70 12.59 157827072
+./testheapmgrkr FIFO_random 30000 10000 4.79 1.45 6.24 157827072
+./testheapmgrkr random_fixed 30000 10000 - - 4.35 111247360
+./testheapmgrkr random_random 30000 10000 - - 1.44 49332224
+./testheapmgrkr worst 30000 10000 - - 10.13 103743488
+==============================================================================
+./testheapmgrbase LIFO_fixed 50000 1000 0.78 0.73 1.51 51250000
+./testheapmgrbase FIFO_fixed 50000 1000 0.76 0.00 0.77 51250000
+./testheapmgrbase LIFO_random 50000 1000 0.08 0.07 0.15 26174400
+./testheapmgrbase FIFO_random 50000 1000 0.08 0.00 0.08 26174400
+./testheapmgrbase random_fixed 50000 1000 - - 0.47 16186800
+./testheapmgrbase random_random 50000 1000 - - 0.21 8282000
+./testheapmgrbase worst 50000 1000 - - 2.03 13940000
+==============================================================================
+./testheapmgrbase LIFO_fixed 30000 10000 25.47 22.86 48.33 492000000
+./testheapmgrbase FIFO_fixed 30000 10000 22.47 0.00 22.47 492000000
+./testheapmgrbase LIFO_random 30000 10000 4.13 4.06 8.19 152208400
+./testheapmgrbase FIFO_random 30000 10000 4.14 0.13 4.27 152208400
+./testheapmgrbase random_fixed 30000 10000 - - 1.64 110929600
+./testheapmgrbase random_random 30000 10000 - - 0.42 48150400
+./testheapmgrbase worst 30000 10000 - - 1.78 103369200
+==============================================================================
+./testheapmgr1 LIFO_fixed 50000 1000 0.11 0.01 0.12 54730944
+./testheapmgr1 FIFO_fixed 50000 1000 0.11 0.01 0.12 54730944
+./testheapmgr1 LIFO_random 50000 1000 0.02 0.00 0.02 27168480
+./testheapmgr1 FIFO_random 50000 1000 0.02 0.01 0.02 27168480
+./testheapmgr1 random_fixed 50000 1000 - - 0.02 17269632
+./testheapmgr1 random_random 50000 1000 - - 0.01 8552736
+./testheapmgr1 worst 50000 1000 - - 2.91 14971392
+==============================================================================
+./testheapmgr1 LIFO_fixed 30000 10000 22.77 0.01 22.77 492480000
+./testheapmgr1 FIFO_fixed 30000 10000 23.31 0.01 23.32 492480000
+./testheapmgr1 LIFO_random 30000 10000 2.20 0.00 2.21 162633312
+./testheapmgr1 FIFO_random 30000 10000 2.21 0.01 2.21 162633312
+./testheapmgr1 random_fixed 30000 10000 - - 0.81 111316896
+./testheapmgr1 random_random 30000 10000 - - 0.12 49921056
+./testheapmgr1 worst 30000 10000 - - 3.91 104405760
+==============================================================================
+./testheapmgr2 LIFO_fixed 50000 1000 0.02 0.00 0.02 54730944
+./testheapmgr2 FIFO_fixed 50000 1000 0.02 0.00 0.02 54730944
+./testheapmgr2 LIFO_random 50000 1000 0.02 0.00 0.02 26987904
+./testheapmgr2 FIFO_random 50000 1000 0.02 0.00 0.02 26987904
+./testheapmgr2 random_fixed 50000 1000 - - 0.01 17269632
+./testheapmgr2 random_random 50000 1000 - - 0.01 8536320
+./testheapmgr2 worst 50000 1000 - - 0.82 14725152
+==============================================================================
+./testheapmgr2 LIFO_fixed 30000 10000 0.09 0.01 0.09 492480000
+./testheapmgr2 FIFO_fixed 30000 10000 0.09 0.01 0.10 492480000
+./testheapmgr2 LIFO_random 30000 10000 0.04 0.00 0.05 154490976
+./testheapmgr2 FIFO_random 30000 10000 0.04 0.00 0.05 154490976
+./testheapmgr2 random_fixed 30000 10000 - - 0.06 111103488
+./testheapmgr2 random_random 30000 10000 - - 0.02 48574944
+./testheapmgr2 worst 30000 10000 - - 0.08 103617792
+
+# Description of Implementation's Design and Intent
+
+My implementation manages the heap as a sequence of variable-sized blocks, where each block has a
+header and footer containing its size in units and allocation state.
+In heapmgr1, free blocks are organized in a single doubly-linked free list using the header’s next
+pointer and the footer’s prev pointer.
+Heapmgr2 extends this idea by using multiple doubly-linked list, dividing free blocks into multiple
+size-based bins to reduce search time for allocation, and to find a block that closely resembles the
+size requested.
+For allocation, heapmgr_malloc() first searches the free structure for a block large enough to
+satisfy the request, reuses an existing free block when possible, and splits the block if it is
+larger than needed so the remainder can stay available for future allocations. If no suitable free
+block exists, the allocator expands the heap with sbrk().
+For deallocation, heapmgr_free() marks the block as free, checks the physically adjacent lower and
+upper neighbors using the boundary tags, and coalesces contiguous free blocks to reduce fragmentation.
+I also included heap validity checking in debug mode so that the allocator verifies structural invariants
+of the heap and free lists/bins at the entry and exit of heapmgr_malloc() and heapmgr_free().
+
+# LLM Assistance
+
+I received help in C syntax, and received help with in what order I should approach this assignment, and also in finding source of errors.
