@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
     error_print(argv[0], SETUP);
 
     /* Register signal handler */
-    init_signal(SIGINT, sigint_handler, SA_RESTART);
+    init_signal(SIGINT, sigint_handler, 0);
     init_signal(SIGCHLD, sigchld_handler, SA_RESTART);
     init_signal(SIGQUIT, SIG_IGN, 0);
     init_signal(SIGTSTP, SIG_IGN, 0);
@@ -195,6 +195,12 @@ int main(int argc, char *argv[]) {
         fflush(stdout);
 
         if (fgets(c_line, MAX_LINE_SIZE, stdin) == NULL) {
+		if (errno == EINTR){
+		clearerr(stdin);
+		fprintf(stdout, "\n");
+		fflush(stdout);
+		continue;
+		}
             printf("\n");
             exit(EXIT_SUCCESS);
         }
