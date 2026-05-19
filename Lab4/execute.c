@@ -46,6 +46,8 @@ void handle_sigint(void) {
     
 }
 /*--------------------------------------------------------------------*/
+//Tries to make stdout point to fd
+//If dup2 fails, print an error message and exit the child.
 void dup2_e(int oldfd, int newfd, const char *func, const int line) {
 	int ret;
 
@@ -68,8 +70,25 @@ void check_signals(void) {
 /*--------------------------------------------------------------------*/
 void redout_handler(char *fname) {
 	/*
-	 TODO: Implement redout_handler in execute.c
+	TODO: Implement redout_handler in execute.c
+	1. Receive the output filename (fname)
+	2. Open or create that file for writing. 
+		- If file doesn't exist, create. If file exists, erase/truncate its old contents
+	3. Set appropriate file permissions if creating a new file
+	4. Check whether opening the file failed
+	5. Replace standard output with the file descriptor
+	6. Close the extra file descriptor
 	*/
+	int fd;
+
+	fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0640); //owner can read/write, group can read, others have no permission
+	if (fd < 0) {
+		error_print(NULL, PERROR);
+		_exit(127);
+	}
+
+	dup2_e(fd, STDOUT_FILENO, __func__, __LINE__);
+	close(fd);
 }
 /*--------------------------------------------------------------------*/
 void redin_handler(char *fname) {
@@ -247,8 +266,7 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 	 * TODO: Implement fork_exec() in execute.c
 	 * To run a newly forked process in the foreground, call wait_fg() 
 	 * to wait for the process to finish.  
-	 * To run it in the background, call print_job() to print job id and
-	 * process group id.  
+	 * To run it in the background, call print_job() to print job id and process group id.  
 	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
 
 		1. Create child with fork()
@@ -278,6 +296,15 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 			error_print(NULL, PERROR);
 			_exit(127);
 		} 
+
+		//register job to job manager
+		pid_t pids[1] = {pid};
+		job_state state = is_background ? BACKGROUND : FOREGROUND;
+
+		int jobid = add_job(pid, pids, 1, state);
+		if(jobid == -1){
+			fprintf(stderr, "Error adding job to job manager\n");
+		}
 	}
 
 	
