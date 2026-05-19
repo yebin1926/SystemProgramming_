@@ -23,15 +23,14 @@ typedef enum State {
 
 /* 
  * Job = The user's command line input
- * ex) if the user's command line input is "ps -ef | grep job" then it's one job, with two processes. 
+ * ex) if the user's command line input is "ps -ef | grep job" then 
+ * One job, Two processes. 
  */
 struct job {
     int job_id;
-    pid_t pgid; //process group ID for the job (pgid lets the shell send one signal to all processes in the job, e.g. same PGID to 3 processes in 'ls | grep c | sort')
-    int remaining_processes; //how many child processes in this job are still not fully handled
+    pid_t pgid;
+    int remaining_processes;
     /* TODO: Add any necessary fields to the job */
-    pid_t *pids; //which PIDs belong to it (process ID)
-    job_state state; //Whether the job is foreground or background
 };
 
 /* 
@@ -40,10 +39,9 @@ struct job {
  * regardless of whether it is a foreground or background job.
  */
 struct job_manager {
-    int n_jobs; //how many jobs are currently registered
-    struct job *jobs; //points to an array of struct job
+    int n_jobs;
+    struct job *jobs;
     /* TODO: Add any necessary fields to the job manager */
-    int next_job_id; //job ID to use next time
 };
 
 void init_job_manager();
@@ -54,13 +52,5 @@ int delete_job(int job_id);
 /*
  * TODO: Implement any necessary job-control code in job.h 
  */
-
-int add_job(pid_t pgid, pid_t *pids, int num_pids, job_state state);
-int add_pid_to_job(struct job *job, pid_t pid);
-struct job *find_job_by_pid(pid_t pid);
-struct job *find_fg_job(void);
-
-// struct job *find_completed_bg_job(void);
-
 
 #endif /* _JOB_H_ */

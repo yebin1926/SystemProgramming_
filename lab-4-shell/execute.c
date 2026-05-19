@@ -250,37 +250,8 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 	 * To run it in the background, call print_job() to print job id and
 	 * process group id.  
 	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
-
-		1. Create child with fork()
-		2. Put child in its own process group with setpgid()
-		3. Parent registers job in job manager
-		4. Child builds argv using build_command()
-		5. Child calls execvp()
-		6. Parent waits if foreground
-		7. Parent prints job info if background
 	 */
 
-	pid_t pid = fork();
-
-	if(pid < 0){ //if fork failed
-		error_print(NULL, PERROR);
-    return -1;
-	} else if(pid == 0){ //child process
-		if(setpgid(0, 0) == -1){ //if setpgid fails
-			error_print(NULL, PERROR);
-			_exit(127);
-		} 
-
-
-	} else{ //parent process
-		//setting child in its own process group
-		if(setpgid(pid, pid) == -1){ //if setpgid fails
-			error_print(NULL, PERROR);
-			_exit(127);
-		} 
-	}
-
-	
 	int jobid = 1;
 	return jobid;
 }
