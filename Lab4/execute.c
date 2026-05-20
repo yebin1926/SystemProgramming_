@@ -31,6 +31,23 @@ void handle_sigchld(void) {
 	 * Call waitpid() to wait for the child process to terminate.
 	 * If the child process terminates, handle the job accordingly.
 	 * Be careful to handle the SIGCHLD signal flag and unblock SIGCHLD.
+	
+	1. Check whether SIGCHLD actually happened
+	2: Reset the flag
+	3: Reap every child that has already exited
+	4: For each exited child, get its PID
+	5: Find which job that PID belonged to
+	6: If no job is found, do not crash
+	7: Remove the exited PID from that job
+	8: If removing the PID failed, handle it safely
+	9: Check whether the whole job is finished
+	10: If the job is foreground and finished, delete it
+	11: If the job is background and finished, do not immediately print from here
+	12: Continue reaping until no more exited children are available
+	13: If there are no more exited children, stop the loop
+	14: Handle interrupted wait safely
+	15: Handle “no children” safely
+	16: For unexpected wait errors, print an error and stop
 	*/
 	
 }
@@ -104,8 +121,14 @@ void redin_handler(char *fname) {
 	close(fd);
 }
 /*--------------------------------------------------------------------*/
+//takes part of the token array and converts it into the args[] array that you can pass to execvp()
+// extracts only the command words for one command segment/process. Redirection or pipe is not included.
 void build_command_partial(DynArray_T oTokens, int start, 
 						int end, char *args[]) {
+	// oTokens: whole token array from parsing
+	// start: first token index that this function should process, in the whole token array
+	// end: stopping index
+	// *args[] : output argument array that execvp() needs
 	int i, redin = FALSE, redout = FALSE, cnt = 0;
 	struct Token *t;
 
@@ -278,37 +301,91 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 		7. Parent prints job info if background
 	 */
 
+	//Create pipe for synchronization
+	int sync_pipe[2]; //sync_pipe[0]: used for reading, sync_pipe[1]: used for writing
+	char dummy;
+
+	if (pipe(sync_pipe) < 0) {
+			error_print(NULL, PERROR);
+			return -1;
+	}
+
+	//Fork
 	pid_t pid = fork();
+	int jobid;
 
 	if(pid < 0){ //if fork failed
 		error_print(NULL, PERROR);
+		close(sync_pipe[0]);
+    close(sync_pipe[1]);
     return -1;
+
 	} else if(pid == 0){ //child process
-		if(setpgid(0, 0) == -1){ //if setpgid fails
+		close(sync_pipe[1]); // Child closes the write end
+
+		if(setpgid(0, 0) == -1){ //Put child in its own process group with setpgid(). //if setpgid fails:
 			error_print(NULL, PERROR);
+			close(sync_pipe[0]);
 			_exit(127);
 		} 
 
+		if (read(sync_pipe[0], &dummy, 1) != 1) {
+			_exit(127);
+		}
+		close(sync_pipe[0]); //Child closes its read end
+
+		//Child builds argv using build_command()
+		char *args[MAX_ARGS_CNT];
+		build_command(oTokens, args);
+		if (args[0] == NULL) _exit(127);
+		execvp(args[0], args); //calls execvp()
+
+		//If execvp() fails, print error
+		error_print(NULL, PERROR);
+		_exit(127);
 
 	} else{ //parent process
+
+		close(sync_pipe[0]); //Parent closes read end
+
 		//setting child in its own process group
 		if(setpgid(pid, pid) == -1){ //if setpgid fails
 			error_print(NULL, PERROR);
-			_exit(127);
-		} 
+			close(sync_pipe[1]);
+			kill(pid, SIGTERM);
+			waitpid(pid, NULL, 0);
+			return -1;
+		}
 
 		//register job to job manager
 		pid_t pids[1] = {pid};
 		job_state state = is_background ? BACKGROUND : FOREGROUND;
+		jobid = add_job(pid, pids, 1, state);
 
-		int jobid = add_job(pid, pids, 1, state);
-		if(jobid == -1){
-			fprintf(stderr, "Error adding job to job manager\n");
+
+		if(jobid < 0){
+			close(sync_pipe[1]);
+			kill(pid, SIGTERM);
+			waitpid(pid, NULL, 0);
+			return -1;
+		}
+
+		if (write(sync_pipe[1], "x", 1) < 0) {
+			error_print(NULL, PERROR);
+			close(sync_pipe[1]);
+			kill(pid, SIGTERM);
+			waitpid(pid, NULL, 0);
+			return -1;
+		}
+		close(sync_pipe[1]); //close the write-end
+
+		if(!is_background){ //Parent waits if foreground
+			wait_fg(jobid);
+		} else{ //Parent prints job info if background
+			print_job(jobid, pid);
 		}
 	}
 
-	
-	int jobid = 1;
 	return jobid;
 }
 /*--------------------------------------------------------------------*/

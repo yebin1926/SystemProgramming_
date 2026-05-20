@@ -71,16 +71,16 @@ int delete_job(int jobid) {
     /*
      * TODO: Implement delete_job()
      */
+    //Put the block calls before the guard, so every return path has matching unblock calls
+    block_signal(SIGCHLD, TRUE);
+    block_signal(SIGINT, TRUE);
 
     if (manager == NULL || manager->jobs == NULL || manager->n_jobs == 0) {
         block_signal(SIGINT, FALSE);
         block_signal(SIGCHLD, FALSE);
         return 0;
     }
-
-    block_signal(SIGCHLD, TRUE);
-    block_signal(SIGINT, TRUE);
-
+    
     for (int i = 0; i < (manager->n_jobs) ; i++) {  //delete the job from job manager
         if(manager->jobs[i].job_id == jobid){
             free(manager->jobs[i].pids);
@@ -123,7 +123,7 @@ int add_job(pid_t pgid, pid_t *pids, int num_pids, job_state state){
 
     struct job *newjob = &manager->jobs[manager->n_jobs];
     memset(newjob, 0, sizeof(struct job));
-    
+
     int jobid = manager->next_job_id++;
     newjob->job_id = jobid;
     newjob->pgid = pgid;
