@@ -32,6 +32,7 @@ struct job {
     /* TODO: Add any necessary fields to the job */
     pid_t *pids; //which PIDs belong to it (process ID)
     job_state state; //Whether the job is foreground or background
+    int completed; //Background job finished and is waiting to be reported
 };
 
 /* 
@@ -59,8 +60,7 @@ int add_job(pid_t pgid, pid_t *pids, int num_pids, job_state state);
 int add_pid_to_job(struct job *job, pid_t pid);
 struct job *find_job_by_pid(pid_t pid);
 struct job *find_fg_job(void);
-
-// struct job *find_completed_bg_job(void);
+struct job *find_completed_bg_job(void);
 
 
 #endif /* _JOB_H_ */

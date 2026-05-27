@@ -15,6 +15,13 @@ void check_bg_status() {
     /*
      * TODO: Implement check_bg_status()
      */
+    struct job *job;
+
+    while ((job = find_completed_bg_job()) != NULL) {
+        fprintf(stdout, 
+            "[%d] Process group: %d completed\n", job->job_id, job->pgid);
+        delete_job(job->job_id);
+    }
 }
 /*--------------------------------------------------------------------*/
 void terminate_jobs() {

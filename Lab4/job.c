@@ -129,6 +129,7 @@ int add_job(pid_t pgid, pid_t *pids, int num_pids, job_state state){
     newjob->pgid = pgid;
     newjob->state = state;
     newjob->remaining_processes = num_pids;
+    newjob->completed = 0;
 
     newjob->pids = malloc(sizeof(pid_t) * num_pids);
     if (!newjob->pids) {
@@ -193,4 +194,13 @@ struct job *find_fg_job(void){ // the job the shell is currently waiting for or 
     return NULL;
 }
 
-// struct job *find_completed_bg_job(void);
+struct job *find_completed_bg_job(void){
+    if (manager == NULL || manager->jobs == NULL) return NULL;
+
+    for (int i = 0; i < (manager->n_jobs) ; i++) {
+        if(manager->jobs[i].state == BACKGROUND && manager->jobs[i].completed){
+            return &manager->jobs[i];
+        }
+    }
+    return NULL;
+}

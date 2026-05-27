@@ -24,7 +24,7 @@ void block_signal(int sig, int block) {
     }
 }
 /*--------------------------------------------------------------------*/
-void handle_sigchld(void) {
+void handle_sigchld(void) { //a signal sent by the kernel to a parent process whenever one of its child processes terminates, stops, or continues
 
 	/*
 	 * TODO: Implement handle_sigchld() in execute.c
@@ -49,7 +49,43 @@ void handle_sigchld(void) {
 	15: Handle “no children” safely
 	16: For unexpected wait errors, print an error and stop
 	*/
-	
+
+	block_signal(SIGCHLD, TRUE);
+	block_signal(SIGINT, TRUE);
+
+	if(!sigchld_flag){ //Check whether SIGCHLD actually happened
+		block_signal(SIGINT, FALSE);
+		block_signal(SIGCHLD, FALSE);
+		return;
+	}
+	sigchld_flag = 0; //Reset the flag
+	block_signal(SIGINT, FALSE);
+	block_signal(SIGCHLD, FALSE);
+
+	int status;
+	pid_t child_pid;
+	while ((child_pid = waitpid(-1, &status, WNOHANG)) > 0) { //Reap every child that has already exited
+		//Find which job that PID belonged to
+		struct job *exited_job = find_job_by_pid(child_pid);
+		if(exited_job == NULL){
+			continue;
+		}
+
+		//Remove the exited PID from that job
+		if(!remove_pid_from_job(exited_job, child_pid)){
+			continue;
+		}
+
+		// Mark finished background jobs for check_bg_status().
+		if(exited_job->state == BACKGROUND &&
+			exited_job->remaining_processes == 0){
+			exited_job->completed = 1;
+		}
+	}
+
+	if (child_pid < 0 && errno != ECHILD && errno != EINTR) {
+		error_print("Unknown error waitpid() in handle_sigchld()", PERROR);
+	}
 }
 /*--------------------------------------------------------------------*/
 void handle_sigint(void) {
@@ -59,10 +95,51 @@ void handle_sigint(void) {
 	 * Find the foreground job and send signal to every process in the
 	 * process group.
 	 * Be careful to handle the SIGINT signal flag and unblock SIGINT.
+	
+	1. Check whether a SIGINT was actually requested
+	2. Block signals while handling shared job state
+	3. Clear sigint_flag
+	4. Find the current foreground job
+	5. If there is no foreground job, unblock signals and return
+	6. Get the foreground job’s process group ID
+	7. Send SIGINT to the foreground process group
+	8. Handle the case where the process group no longer exists
+	9. Do not delete the job directly inside handle_sigint()
+	10. Unblock signals before returning
+
 	 */
-    
+  block_signal(SIGCHLD, TRUE);
+	block_signal(SIGINT, TRUE);
+
+	if(!sigint_flag){ //Check whether SIGINT actually happened
+		block_signal(SIGINT, FALSE);
+		block_signal(SIGCHLD, FALSE);
+		return;
+	}
+	sigint_flag = 0; //Reset the flag
+
+	struct job *fg_job = find_fg_job(); //Find the current foreground job
+
+	if(!fg_job){ //If there is no foreground job, unblock signals and return
+		block_signal(SIGINT, FALSE);
+		block_signal(SIGCHLD, FALSE);
+		return;
+	}
+
+	//Send SIGINT to the foreground process group
+	pid_t pgid = fg_job->pgid;
+	if(kill(-pgid, SIGINT) == -1){
+		if (errno != ESRCH) {
+			fprintf(stderr, "Error sending sigint into pgid=%d\n", (int)pgid);
+		}
+	}
+
+	block_signal(SIGINT, FALSE);
+	block_signal(SIGCHLD, FALSE);
+	return;
 }
 /*--------------------------------------------------------------------*/
+
 //Tries to make stdout point to fd
 //If dup2 fails, print an error message and exit the child.
 void dup2_e(int oldfd, int newfd, const char *func, const int line) {
@@ -76,7 +153,9 @@ void dup2_e(int oldfd, int newfd, const char *func, const int line) {
 		_exit(127);
 	}
 }
+
 /*--------------------------------------------------------------------*/
+
 /* Do not modify this function. It is used to check the signals and 
  * handle them accordingly. It is called in the main loop of snush.c.
  */
@@ -84,6 +163,7 @@ void check_signals(void) {
     handle_sigchld();
     handle_sigint();
 }
+
 /*--------------------------------------------------------------------*/
 void redout_handler(char *fname) {
 	/*
@@ -388,6 +468,17 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 
 	return jobid;
 }
+
+//Helper function to close all pipes
+void close_pipes(int pipefd[][2], int n_pipe){
+	if (pipefd == NULL) return;
+
+	for(int i=0; i<n_pipe; i++){
+		close(pipefd[i][0]);
+		close(pipefd[i][1]);
+	}
+}
+
 /*--------------------------------------------------------------------*/
 int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	/*
@@ -397,7 +488,88 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	 * To run it in the background, call print_job() to print job id and
 	 * process group id.  
 	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
+	
+	1. Compute the number of commands in the pipeline
+	2. Prepare storage for child PIDs
+	3. Prepare storage for pipe file descriptors
+	4. Create all pipes before forking children
+	5. Create a synchronization pipe - Like in fork_exec(), use a separate internal pipe to make children wait until the parent has registered the job.
+	6. Find token ranges for each pipeline stage
+	7. Fork one child per pipeline stage
+	8. Assign all children to one process group
+	9. In each child: close the unused side of the sync pipe
+	10. In each child: connect pipe input/output
+	11. In each child: apply dup2() before closing pipe fds
+	12. In each child: close all pipe file descriptors
+	13. In each child: wait on the synchronization pipe
+	14. In each child: close the sync pipe read end
+	15. In each child: build the command for only its stage
+	16. In each child: detect whether the command is a built-in
+	17. In each child: execute built-ins directly
+	18. In each child: execute external commands with execvp()
+	19. In the parent after each fork: store child PID
+			In the parent: close pipe fds after all children are forked
+			In the parent: register the whole pipeline as one job
+			In the parent: release the children
+			In the parent: close the sync pipe
+	24. If job registration fails
+	25. If foreground pipeline, if background pipeline
+	27. Return the job ID
+	28. Make sure built-in standalone behavior remains separate]
+	29. Make sure redirection and pipes interact correctly
+	30. Make sure every error path closes file descriptors
+	31. Make sure children exit on failure, Make sure parent does not _exit()
 	 */
+
+	int n_commands = n_pipe + 1;
+
+	int sync_pipe[2]; //sync_pipe[0]: used for reading, sync_pipe[1]: used for writing
+
+	pid_t pids[n_commands]; //storage for child PIDs
+	int pipefd[n_pipe][2]; //storage for file, read and write end
+
+	int cmd_starts[n_commands]; //storage for command indexes
+	int cmd_ends[n_commands];
+
+	for(int i=0; i<n_pipe; i++){ //Create all pipes before forking children
+		if(pipe(pipefd[i]) == -1){ 
+			error_print("creating pipe failed", FPRINTF);
+			close(pipefd[i][0]);
+			close(pipefd[i][1]);
+			return -1;
+		}
+	}
+
+	//Save starting and ending indexes of each command
+	cmd_starts[0] = 0;
+	cmd_ends[n_commands] = oTokens->iLength;
+	int cnt = 0;
+
+	for(int i=0; i<oTokens->iLength; i++){
+		if(oTokens->ppvArray[i] == '|'){
+			cmd_ends[cnt] = i-1;
+			if(cnt<n_commands) cmd_starts[++cnt] = i+1;
+		}
+	}
+
+	//Fork one child per pipeline stage
+	for(int i=0; i<n_commands; i++){
+		int start = cmd_starts[i];
+		int end = cmd_ends[i];
+
+		pid_t pid = fork();
+
+		if(pid < 0){ //if fork failed
+			error_print(NULL, PERROR);
+			close(sync_pipe[0]);
+			close(sync_pipe[1]);
+			return -1;
+		} 
+		else if(pid == 0){ //child process
+		}
+		else{ //parent process
+			//
+		}
 
 	int jobid = 1;	
 	return jobid;
