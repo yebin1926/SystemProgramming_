@@ -19,7 +19,8 @@ void check_bg_status() {
 
     while ((job = find_completed_bg_job()) != NULL) {
         fprintf(stdout, 
-            "[%d] Process group: %d completed\n", job->job_id, job->pgid);
+            "[%d] Process group: %d completed\n", 
+            job->job_id, (int)job->pgid);
         delete_job(job->job_id);
     }
 }
@@ -29,6 +30,38 @@ void terminate_jobs() {
     /*
      * TODO: Implement terminate_jobs()
     */
+    int i, j;
+
+    if (manager == NULL || manager->jobs == NULL)
+        return;
+
+    block_signal(SIGCHLD, TRUE);
+    block_signal(SIGINT, TRUE);
+
+    for (i = 0; i < manager->n_jobs; i++) {
+        if (manager->jobs[i].pgid > 0)
+            kill(-manager->jobs[i].pgid, SIGTERM);
+    }
+
+    for (i = 0; i < manager->n_jobs; i++) {
+        struct job *job = &manager->jobs[i];
+
+        for (j = 0; j < job->remaining_processes; j++) {
+            pid_t pid = job->pids[j];
+
+            if (pid <= 0)
+                continue;
+
+            while (waitpid(pid, NULL, 0) < 0) {
+                if (errno == EINTR)
+                    continue;
+                break;
+            }
+        }
+    }
+
+    block_signal(SIGINT, FALSE);
+    block_signal(SIGCHLD, FALSE);
 }
 /*--------------------------------------------------------------------*/
 void cleanup() {
@@ -36,7 +69,20 @@ void cleanup() {
     /*
      * TODO: Implement cleanup(), if necessary
      */
+    if (manager == NULL)
+        return;
+
+    if (manager->jobs != NULL) {
+        int i;
+
+        for (i = 0; i < manager->n_jobs; i++)
+            free(manager->jobs[i].pids);
+
+        free(manager->jobs);
+    }
+
     free(manager);
+    manager = NULL;
 }
 /*--------------------------------------------------------------------*/
 /* Do not modify this function */
