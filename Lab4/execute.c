@@ -31,23 +31,6 @@ void handle_sigchld(void) { //a signal sent by the kernel to a parent process wh
 	 * Call waitpid() to wait for the child process to terminate.
 	 * If the child process terminates, handle the job accordingly.
 	 * Be careful to handle the SIGCHLD signal flag and unblock SIGCHLD.
-	
-	1. Check whether SIGCHLD actually happened
-	2: Reset the flag
-	3: Reap every child that has already exited
-	4: For each exited child, get its PID
-	5: Find which job that PID belonged to
-	6: If no job is found, do not crash
-	7: Remove the exited PID from that job
-	8: If removing the PID failed, handle it safely
-	9: Check whether the whole job is finished
-	10: If the job is foreground and finished, delete it
-	11: If the job is background and finished, do not immediately print from here
-	12: Continue reaping until no more exited children are available
-	13: If there are no more exited children, stop the loop
-	14: Handle interrupted wait safely
-	15: Handle “no children” safely
-	16: For unexpected wait errors, print an error and stop
 	*/
 
 	block_signal(SIGCHLD, TRUE);
@@ -95,18 +78,6 @@ void handle_sigint(void) {
 	 * Find the foreground job and send signal to every process in the
 	 * process group.
 	 * Be careful to handle the SIGINT signal flag and unblock SIGINT.
-	
-	1. Check whether a SIGINT was actually requested
-	2. Block signals while handling shared job state
-	3. Clear sigint_flag
-	4. Find the current foreground job
-	5. If there is no foreground job, unblock signals and return
-	6. Get the foreground job’s process group ID
-	7. Send SIGINT to the foreground process group
-	8. Handle the case where the process group no longer exists
-	9. Do not delete the job directly inside handle_sigint()
-	10. Unblock signals before returning
-
 	 */
   block_signal(SIGCHLD, TRUE);
 	block_signal(SIGINT, TRUE);
@@ -168,13 +139,6 @@ void check_signals(void) {
 void redout_handler(char *fname) {
 	/*
 	TODO: Implement redout_handler in execute.c
-	1. Receive the output filename (fname)
-	2. Open or create that file for writing. 
-		- If file doesn't exist, create. If file exists, erase/truncate its old contents
-	3. Set appropriate file permissions if creating a new file
-	4. Check whether opening the file failed
-	5. Replace standard output with the file descriptor
-	6. Close the extra file descriptor
 	*/
 	int fd;
 
@@ -367,18 +331,6 @@ void print_job(int jobid, pid_t pgid) {
 int fork_exec(DynArray_T oTokens, int is_background) {
 	/*
 	 * TODO: Implement fork_exec() in execute.c
-	 * To run a newly forked process in the foreground, call wait_fg() 
-	 * to wait for the process to finish.  
-	 * To run it in the background, call print_job() to print job id and process group id.  
-	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
-
-		1. Create child with fork()
-		2. Put child in its own process group with setpgid()
-		3. Parent registers job in job manager
-		4. Child builds argv using build_command()
-		5. Child calls execvp()
-		6. Parent waits if foreground
-		7. Parent prints job info if background
 	 */
 
 	//Create pipe for synchronization
@@ -495,11 +447,6 @@ void reap_children(int i, pid_t *pids){
 int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	/*
 	 * TODO: Implement iter_pipe_fork_exec() in execute.c
-	 * To run a newly forked process in the foreground, call wait_fg() 
-	 * to wait for the process to finish.  
-	 * To run it in the background, call print_job() to print job id and
-	 * process group id.  
-	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
 	 */
 
 	int n_commands = n_pipe + 1;
@@ -563,31 +510,11 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 			close(sync_pipe[1]); // Child closes the write end on sync_pipe
 			// close(pipefd[i][1]); // Child closes the write end on pipefd
 
-			if(i == 0){ //setting first child's pid as everyone's pgid
-				if(setpgid(0, 0) == -1){ //Put child in its own process group with setpgid(). //if setpgid fails:
-					error_print(NULL, PERROR);
-					close_pipes(pipefd, i);
-					close(sync_pipe[0]);
-					if (first_pgid > 0) kill(-first_pgid, SIGTERM);
-					reap_children(i, pids);
-					_exit(127);
-				} 
-			} else {
-				if(setpgid(0, first_pgid) == -1){ //Put child in its own process group with setpgid(). //if setpgid fails:
-					error_print(NULL, PERROR);
-					close_pipes(pipefd, i);
-					close(sync_pipe[0]);
-					if (first_pgid > 0) kill(-first_pgid, SIGTERM);
-					reap_children(i, pids);
-					_exit(127);
-				} 
-			}
-
 			if(i > 0){ //connect previous pipe read end to stdin
-				dup2(pipefd[i-1][0], STDIN_FILENO);
+				dup2_e(pipefd[i-1][0], STDIN_FILENO, __func__, __LINE__);
 			}
 			if(i < n_commands -1){
-				dup2(pipefd[i][1], STDOUT_FILENO);
+				dup2_e(pipefd[i][1], STDOUT_FILENO, __func__, __LINE__);
 			}
 
 			close_pipes(pipefd, n_pipe);
@@ -603,19 +530,38 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 			char *args[MAX_ARGS_CNT];
 			build_command_partial(oTokens, cmd_starts[i], cmd_ends[i], args);
 
-			if(args[0] != NULL){
-				error_print(NULL, PERROR);
+			if(args[0] == NULL){
 				_exit(127);
 			}
 
 			//check first command token for built-in type (cd, exit, etc)
-			enum BuiltinType builtinType = check_builtin(dynarray_get(oTokens, cmd_starts[i]));
-			if(builtinType != NORMAL){ //Built-in
-				int ret = execute_builtin_partial(oTokens, cmd_starts[i], cmd_ends[i], builtinType, TRUE);
+				enum BuiltinType builtinType = check_builtin(dynarray_get(oTokens, cmd_starts[i]));
+				if(builtinType != NORMAL){ //Built-in
+					DynArray_T builtin_tokens = dynarray_new(0);
+					int ret;
 
-				if(ret < 0){
-					_exit(127);
-				}
+					if (builtin_tokens == NULL) {
+						_exit(127);
+					}
+
+					for (int j = 0; args[j] != NULL; j++) {
+						struct Token *token = make_one_token(TOKEN_WORD, args[j]);
+						if (token == NULL || !dynarray_add(builtin_tokens, token)) {
+							if (token != NULL) free_token(token, NULL);
+							dynarray_map(builtin_tokens, free_token, NULL);
+							dynarray_free(builtin_tokens);
+							_exit(127);
+						}
+					}
+
+					ret = execute_builtin_partial(builtin_tokens, 0,
+						dynarray_get_length(builtin_tokens), builtinType, TRUE);
+					dynarray_map(builtin_tokens, free_token, NULL);
+					dynarray_free(builtin_tokens);
+
+					if(ret < 0){
+						_exit(127);
+					}
 				_exit(0);
 			}
 			
@@ -634,8 +580,11 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 			if(i == 0) first_pgid = pid;
 			if(setpgid(pid, first_pgid) == -1){ //if setpgid fails
 				error_print(NULL, PERROR);
+				close_pipes(pipefd, n_pipe); //parent closes all pipefds
 				close(sync_pipe[1]);
-				kill(pid, SIGTERM);
+				close(sync_pipe[0]);
+				if(first_pgid > 0) kill(-first_pgid, SIGTERM);
+				reap_children(i, pids);
 				waitpid(pid, NULL, 0);
 				return -1;
 			}
@@ -662,10 +611,9 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 			error_print(NULL, PERROR);
 			close(sync_pipe[1]);
 
-			if(first_pgid > 0){
-				kill(-first_pgid, SIGTERM);
-			}
+			if(first_pgid > 0) kill(-first_pgid, SIGTERM);
 			reap_children(n_commands, pids);
+			delete_job(jobid);
 			return -1;
 		}
 	}
