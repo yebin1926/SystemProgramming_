@@ -479,6 +479,18 @@ void close_pipes(int pipefd[][2], int n_pipe){
 	}
 }
 
+void reap_children(int i, pid_t *pids){
+	for (int j = 0; j < i; j++) {
+    if (pids[j] > 0) {
+        while (waitpid(pids[j], NULL, 0) < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+    }
+	}
+}
+
 /*--------------------------------------------------------------------*/
 int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	/*
@@ -488,45 +500,14 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	 * To run it in the background, call print_job() to print job id and
 	 * process group id.  
 	 * All terminated processes must be handled by sigchld_handler() in * snush.c. 
-	
-	1. Compute the number of commands in the pipeline
-	2. Prepare storage for child PIDs
-	3. Prepare storage for pipe file descriptors
-	4. Create all pipes before forking children
-	5. Create a synchronization pipe - Like in fork_exec(), use a separate internal pipe to make children wait until the parent has registered the job.
-	6. Find token ranges for each pipeline stage
-	7. Fork one child per pipeline stage
-	8. Assign all children to one process group
-	9. In each child: close the unused side of the sync pipe
-	10. In each child: connect pipe input/output
-	11. In each child: apply dup2() before closing pipe fds
-	12. In each child: close all pipe file descriptors
-	13. In each child: wait on the synchronization pipe
-	14. In each child: close the sync pipe read end
-	15. In each child: build the command for only its stage
-	16. In each child: detect whether the command is a built-in
-	17. In each child: execute built-ins directly
-	18. In each child: execute external commands with execvp()
-	19. In the parent after each fork: store child PID
-			In the parent: close pipe fds after all children are forked
-			In the parent: register the whole pipeline as one job
-			In the parent: release the children
-			In the parent: close the sync pipe
-	24. If job registration fails
-	25. If foreground pipeline, if background pipeline
-	27. Return the job ID
-	28. Make sure built-in standalone behavior remains separate]
-	29. Make sure redirection and pipes interact correctly
-	30. Make sure every error path closes file descriptors
-	31. Make sure children exit on failure, Make sure parent does not _exit()
 	 */
 
 	int n_commands = n_pipe + 1;
 
-	int sync_pipe[2]; //sync_pipe[0]: used for reading, sync_pipe[1]: used for writing
-
 	pid_t pids[n_commands]; //storage for child PIDs
 	int pipefd[n_pipe][2]; //storage for file, read and write end
+
+	int sync_pipe[2]; //sync_pipe[0]: used for reading, sync_pipe[1]: used for writing
 
 	int cmd_starts[n_commands]; //storage for command indexes
 	int cmd_ends[n_commands];
@@ -534,44 +515,169 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 	for(int i=0; i<n_pipe; i++){ //Create all pipes before forking children
 		if(pipe(pipefd[i]) == -1){ 
 			error_print("creating pipe failed", FPRINTF);
-			close(pipefd[i][0]);
-			close(pipefd[i][1]);
+			close_pipes(pipefd, i);
 			return -1;
 		}
 	}
 
+	if(pipe(sync_pipe) == -1){ //create the sync_pipe
+		close_pipes(pipefd, n_pipe);
+		error_print(NULL, PERROR);
+		return -1;
+	}
+
+	char dummy;
+
 	//Save starting and ending indexes of each command
 	cmd_starts[0] = 0;
-	cmd_ends[n_commands] = oTokens->iLength;
+	cmd_ends[n_commands-1] = dynarray_get_length(oTokens);
 	int cnt = 0;
 
-	for(int i=0; i<oTokens->iLength; i++){
-		if(oTokens->ppvArray[i] == '|'){
-			cmd_ends[cnt] = i-1;
+	for(int i=0; i<dynarray_get_length(oTokens); i++){
+		struct Token *token = dynarray_get(oTokens, i);
+		if(token->token_type == TOKEN_PIPE){
+			cmd_ends[cnt] = i; // |'s index, bc build_command_partial() expects end to be exclusive
 			if(cnt<n_commands) cmd_starts[++cnt] = i+1;
 		}
 	}
 
-	//Fork one child per pipeline stage
-	for(int i=0; i<n_commands; i++){
-		int start = cmd_starts[i];
-		int end = cmd_ends[i];
+	pid_t first_pgid = 0;
+
+	//Fork one child per pipeline stage/cmd
+	for(int i=0; i<n_commands; i++){ //for every command, create fork and connect to pipe
 
 		pid_t pid = fork();
 
 		if(pid < 0){ //if fork failed
 			error_print(NULL, PERROR);
+			close_pipes(pipefd, n_pipe);
 			close(sync_pipe[0]);
 			close(sync_pipe[1]);
+			if (first_pgid > 0) kill(-first_pgid, SIGTERM);
+			reap_children(i, pids);
 			return -1;
 		} 
-		else if(pid == 0){ //child process
-		}
-		else{ //parent process
-			//
+
+		//child process
+		else if(pid == 0){ 
+			close(sync_pipe[1]); // Child closes the write end on sync_pipe
+			// close(pipefd[i][1]); // Child closes the write end on pipefd
+
+			if(i == 0){ //setting first child's pid as everyone's pgid
+				if(setpgid(0, 0) == -1){ //Put child in its own process group with setpgid(). //if setpgid fails:
+					error_print(NULL, PERROR);
+					close_pipes(pipefd, i);
+					close(sync_pipe[0]);
+					if (first_pgid > 0) kill(-first_pgid, SIGTERM);
+					reap_children(i, pids);
+					_exit(127);
+				} 
+			} else {
+				if(setpgid(0, first_pgid) == -1){ //Put child in its own process group with setpgid(). //if setpgid fails:
+					error_print(NULL, PERROR);
+					close_pipes(pipefd, i);
+					close(sync_pipe[0]);
+					if (first_pgid > 0) kill(-first_pgid, SIGTERM);
+					reap_children(i, pids);
+					_exit(127);
+				} 
+			}
+
+			if(i > 0){ //connect previous pipe read end to stdin
+				dup2(pipefd[i-1][0], STDIN_FILENO);
+			}
+			if(i < n_commands -1){
+				dup2(pipefd[i][1], STDOUT_FILENO);
+			}
+
+			close_pipes(pipefd, n_pipe);
+
+			//wait for parent release on sync_pipe read end?
+			if (read(sync_pipe[0], &dummy, 1) != 1) { //if parent did not release properly, 
+				close(sync_pipe[0]);
+				_exit(127);
+			}
+			close(sync_pipe[0]);
+		
+			//build command
+			char *args[MAX_ARGS_CNT];
+			build_command_partial(oTokens, cmd_starts[i], cmd_ends[i], args);
+
+			if(args[0] != NULL){
+				error_print(NULL, PERROR);
+				_exit(127);
+			}
+
+			//check first command token for built-in type (cd, exit, etc)
+			enum BuiltinType builtinType = check_builtin(dynarray_get(oTokens, cmd_starts[i]));
+			if(builtinType != NORMAL){ //Built-in
+				int ret = execute_builtin_partial(oTokens, cmd_starts[i], cmd_ends[i], builtinType, TRUE);
+
+				if(ret < 0){
+					_exit(127);
+				}
+				_exit(0);
+			}
+			
+			execvp(args[0], args);
+			error_print(NULL, PERROR);
+			_exit(127);
+
 		}
 
-	int jobid = 1;	
+		//parent process
+		else{
+
+			pids[i] = pid; //store the child PID in pids[i]
+
+			//setting first child's pid as everyone's pgid
+			if(i == 0) first_pgid = pid;
+			if(setpgid(pid, first_pgid) == -1){ //if setpgid fails
+				error_print(NULL, PERROR);
+				close(sync_pipe[1]);
+				kill(pid, SIGTERM);
+				waitpid(pid, NULL, 0);
+				return -1;
+			}
+		}
+	}
+	close(sync_pipe[0]); //Parent closes read end
+	close_pipes(pipefd, n_pipe); //parent closes all pipefds
+
+	job_state state = is_background ? BACKGROUND : FOREGROUND;
+	int jobid = add_job(first_pgid, pids, n_commands, state);
+
+	if(jobid == -1){ //if adding job fails
+		close(sync_pipe[1]); //close sync_pipe write end
+		if(first_pgid > 0){
+			kill(-first_pgid, SIGTERM);
+		}
+		reap_children(n_commands, pids);
+		return -1;
+	}
+
+	//write one byte per child to sync_pipe[1]
+	for(int i=0; i<n_commands; i++){
+		if(write(sync_pipe[1], "x", 1) != 1){
+			error_print(NULL, PERROR);
+			close(sync_pipe[1]);
+
+			if(first_pgid > 0){
+				kill(-first_pgid, SIGTERM);
+			}
+			reap_children(n_commands, pids);
+			return -1;
+		}
+	}
+
+	close(sync_pipe[1]); //close sync_pipe write end
+
+	if(is_background == 0){ //foreground
+		wait_fg(jobid); //waits for all children in the process group and deletes the job when finished.
+	} else { //background
+		print_job(jobid, first_pgid);
+	}
+	
 	return jobid;
 }
 /*--------------------------------------------------------------------*/

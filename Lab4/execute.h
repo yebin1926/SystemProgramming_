@@ -24,6 +24,8 @@ int execute_builtin(DynArray_T oTokens, enum BuiltinType btype);
 void wait_fg(int jobid);
 void print_job(int jobid, pid_t pgid);
 int fork_exec(DynArray_T oTokens, int is_background);
+void close_pipes(int pipefd[][2], int n_pipe);
+void reap_children(int i, pid_t *pids);
 int iter_pipe_fork_exec(int pCount, DynArray_T oTokens, int is_background);
 
 #endif /* _EXEUCTE_H_ */
