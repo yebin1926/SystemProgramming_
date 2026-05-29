@@ -402,6 +402,15 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 			return -1;
 		}
 
+		//terminal handoff, only for foreground jobs: if foreground: tcsetpgrp terminal to child pgid
+		pid_t shell_pgid = getpgrp();
+
+		if (!is_background && isatty(STDIN_FILENO)) {
+				if (tcsetpgrp(STDIN_FILENO, pid) < 0) {
+						error_print(NULL, PERROR);
+				}
+		}
+
 		if (write(sync_pipe[1], "x", 1) < 0) {
 			error_print(NULL, PERROR);
 			close(sync_pipe[1]);
@@ -413,6 +422,12 @@ int fork_exec(DynArray_T oTokens, int is_background) {
 
 		if(!is_background){ //Parent waits if foreground
 			wait_fg(jobid);
+
+			if (isatty(STDIN_FILENO)) { //restore terminal control: tcsetpgrp terminal back to shell pgid
+        if (tcsetpgrp(STDIN_FILENO, shell_pgid) < 0) {
+            error_print(NULL, PERROR);
+        }
+      }
 		} else{ //Parent prints job info if background
 			print_job(jobid, pid);
 		}
@@ -605,6 +620,15 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 		return -1;
 	}
 
+	//
+	pid_t shell_pgid = getpgrp();
+
+	if (!is_background && isatty(STDIN_FILENO)) {
+			if (tcsetpgrp(STDIN_FILENO, first_pgid) < 0) {
+					error_print(NULL, PERROR);
+			}
+	}
+
 	//write one byte per child to sync_pipe[1]
 	for(int i=0; i<n_commands; i++){
 		if(write(sync_pipe[1], "x", 1) != 1){
@@ -622,6 +646,13 @@ int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {
 
 	if(is_background == 0){ //foreground
 		wait_fg(jobid); //waits for all children in the process group and deletes the job when finished.
+
+		if (isatty(STDIN_FILENO)) {
+        if (tcsetpgrp(STDIN_FILENO, shell_pgid) < 0) {
+            error_print(NULL, PERROR);
+        }
+    }
+		
 	} else { //background
 		print_job(jobid, first_pgid);
 	}
