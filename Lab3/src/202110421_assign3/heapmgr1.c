@@ -40,7 +40,7 @@ check_heap_validity(void) //heap: whole physical block in order
         return FALSE;
     }
 
-    // Walk all physical blocks in address order. and check if their chunk is valid
+    /* Walk all physical blocks in address order. and check if their chunk is valid*/
     char *expected_end = (char *)s_heap_lo; //expected last heap block
     for (w = (Chunk_T)s_heap_lo;
         w && w < (Chunk_T)s_heap_hi;
