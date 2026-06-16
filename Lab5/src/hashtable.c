@@ -2,20 +2,22 @@
 /* hashtable.c                                                        */
 /*--------------------------------------------------------------------*/
 #include "hashtable.h"
+#include <string.h>
 /*--------------------------------------------------------------------*/
 /* free to add header files and global variables */
 
 /*--------------------------------------------------------------------*/
-int hash(const char *key, size_t hash_size)
+int hash(const char *key, size_t hash_size) //converts a key string into a bucket index
 {
     TRACE_PRINT();
     unsigned int hash = 0;
-    while (*key)
+    while (*key) //loop over character until reaching null '\n'
     {
-        hash = (hash << 5) + *key++;
+        hash = (hash << 5) + *key++; //shift left by 5 bits (multiply by 32), then add key
+        //move to the next char in key 
     }
 
-    return hash % hash_size;
+    return hash % hash_size; //return bucket index
 }
 /*--------------------------------------------------------------------*/
 hashtable_t *hash_init(size_t hash_size, int delay)
@@ -49,8 +51,7 @@ hashtable_t *hash_init(size_t hash_size, int delay)
         return NULL;
     }
 
-    table->bucket_sizes = calloc(hash_size,
-                                 sizeof(*table->bucket_sizes));
+    table->bucket_sizes = calloc(hash_size, sizeof(*table->bucket_sizes));
     if (table->bucket_sizes == NULL)
     {
         DEBUG_PRINT("Failed to allocate memory for hash table "
@@ -119,37 +120,187 @@ int hash_destroy(hashtable_t *table)
 int hash_insert(hashtable_t *table, const char *key, const char *value)
 {
     TRACE_PRINT();
-    /*----------------------------------------------------------------*/
+/*--------------------------------------------------------------------*/
     /* edit here */
+    //TODO: validate inputs
+    if(table == NULL || key == NULL || value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
 
-    /*----------------------------------------------------------------*/
+    //TODO: compute which bucket to use
+    int idx = hash(key, table->hash_size);
+
+    //TODO: Acquire bucket's write lock
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_write_lock(rw) < 0) return -1;
+
+    //TODO: check for collision (if key alr exists)
+    node_t *next_node = table->buckets[idx];
+    while(next_node != NULL){
+        if(strcmp(key, next_node->key) == 0){
+            rwlock_write_unlock(rw);
+            return 0;
+        }
+        next_node = next_node->next;
+    }
+
+    //TODO: Allocate and initialise new node
+    node_t *newnode = malloc(sizeof(node_t));
+    if(newnode == NULL){
+        errno = ENOMEM;
+        rwlock_write_unlock(rw);
+        return -1;
+    }
+
+    newnode->key = strdup(key);
+    newnode->value = strdup(value);
+    if(newnode->key == NULL || newnode->value == NULL){
+        errno = ENOMEM;
+        rwlock_write_unlock(rw);
+        free(newnode->key);
+        free(newnode->value);
+        free(newnode);
+        return -1;
+    }
+    newnode->key_size = strlen(key)+1;
+    newnode->value_size = strlen(value)+1;
+    newnode->next = NULL;
+
+    //TODO: Link it to the head of bucket
+    newnode->next = table->buckets[idx];
+    table->buckets[idx] = newnode;
+    table->bucket_sizes[idx]++;
+
+    //TODO: Releast lock and return success
+    rwlock_write_unlock(rw);
+
+/*--------------------------------------------------------------------*/
+    return 1;
 }
 /*--------------------------------------------------------------------*/
 int hash_read(hashtable_t *table, const char *key, char *dst, int quick)
 {
     TRACE_PRINT();
-    /*----------------------------------------------------------------*/
+/*--------------------------------------------------------------------*/
     /* edit here */
+    //TODO: validation checks
+    if(table == NULL || key == NULL || dst == NULL){
+        errno = EINVAL;
+        return -1;
+    }
+    
+    //TODO: Compute bucket and acquire lock
+    int idx = hash(key, table->hash_size);
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_read_lock(rw, quick) < 0) return -1;
 
-    /*----------------------------------------------------------------*/
+    //TODO: traverse through table to find key value pair
+    node_t *next_node = table->buckets[idx];
+    while(next_node != NULL){
+        if(strcmp(next_node->key, key) == 0){
+            strncpy(dst, next_node->value, next_node->value_size);
+            rwlock_read_unlock(rw);
+            return 1;
+        }
+        next_node = next_node->next;
+    }
+
+    //Release lock
+    rwlock_read_unlock(rw);
+
+/*--------------------------------------------------------------------*/
+    return 0;
 }
 /*--------------------------------------------------------------------*/
 int hash_update(hashtable_t *table, const char *key, const char *value)
 {
     TRACE_PRINT();
-    /*----------------------------------------------------------------*/
+/*--------------------------------------------------------------------*/
     /* edit here */
+    //TODO: Validation checks
+    if(table == NULL || key == NULL || value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
 
-    /*----------------------------------------------------------------*/
+    //TODO: Compute bucket and Acquire lock
+    int idx = hash(key, table->hash_size);
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_write_lock(rw) < 0) {
+        return -1;
+    }
+
+    //TODO: traverse through bucket and update value
+    node_t *next_node = table->buckets[idx];
+    while(next_node != NULL){
+        if(strcmp(next_node->key, key) == 0){
+            char *temp = strdup(value);
+            if(temp == NULL){ //failure in strdup
+                errno = ENOMEM;
+                rwlock_write_unlock(rw);
+                return -1;
+            }
+            char *old_value = next_node->value;
+            next_node->value = temp;
+            free(old_value);
+            next_node->value_size = strlen(value)+1;
+            rwlock_write_unlock(rw);
+            return 1;
+        }
+        next_node = next_node->next;
+    }
+
+    //TODO: release lock and return
+    rwlock_write_unlock(rw);
+/*--------------------------------------------------------------------*/
+    return 0;
 }
 /*--------------------------------------------------------------------*/
 int hash_delete(hashtable_t *table, const char *key)
 {
     TRACE_PRINT();
-    /*----------------------------------------------------------------*/
+/*--------------------------------------------------------------------*/
     /* edit here */
+    if(table == NULL || key == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
 
-    /*----------------------------------------------------------------*/
+    //TODO: Compute bucket and Acquire lock
+    int idx = hash(key, table->hash_size);
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_write_lock(rw) < 0) {
+        return -1;
+    }
+
+    //TODO: traverse through bucket and find node to delete
+    node_t *curr_node = table->buckets[idx];
+    node_t *prev_node = NULL;
+    while(curr_node != NULL){
+        //if found, delete and change node links and return
+        if(strcmp(curr_node->key, key) == 0){
+            if(prev_node == NULL){ //if it's the first node
+                table->buckets[idx] = curr_node->next;
+            } else {
+                prev_node->next = curr_node->next;
+            }
+            free(curr_node->key);
+            free(curr_node->value);
+            free(curr_node);
+            table->bucket_sizes[idx]--;
+            rwlock_write_unlock(rw);
+            return 1;
+        }
+        prev_node = curr_node;
+        curr_node = curr_node->next;
+    }
+
+    //TODO: release lock and return
+    rwlock_write_unlock(rw);
+
+/*--------------------------------------------------------------------*/
+    return 0;
 }
 /*--------------------------------------------------------------------*/
 /**
