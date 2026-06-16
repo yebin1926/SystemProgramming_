@@ -163,8 +163,6 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
         free(newnode);
         return -1;
     }
-    newnode->key_size = strlen(key)+1;
-    newnode->value_size = strlen(value)+1;
     newnode->next = NULL;
 
     //TODO: Link it to the head of bucket
@@ -199,7 +197,7 @@ int hash_read(hashtable_t *table, const char *key, char *dst, int quick)
     node_t *next_node = table->buckets[idx];
     while(next_node != NULL){
         if(strcmp(next_node->key, key) == 0){
-            strncpy(dst, next_node->value, next_node->value_size);
+            strcpy(dst, next_node->value);
             rwlock_read_unlock(rw);
             return 1;
         }
@@ -244,7 +242,6 @@ int hash_update(hashtable_t *table, const char *key, const char *value)
             char *old_value = next_node->value;
             next_node->value = temp;
             free(old_value);
-            next_node->value_size = strlen(value)+1;
             rwlock_write_unlock(rw);
             return 1;
         }
